@@ -1,5 +1,16 @@
 """PGShield: PostgreSQL concurrency and retry toolkit for Python applications."""
 
+from pgshield.postgres import (
+    DiagnosticCollector,
+    DiagnosticMode,
+    DiagnosticReport,
+    LockInfo,
+    PostgresErrorCategory,
+    PostgresErrorDetails,
+    SessionActivity,
+    build_diagnostic_report,
+    parse_postgres_error,
+)
 from pgshield.retry import (
     ClassificationResult,
     ErrorCategory,
@@ -42,4 +53,14 @@ __all__ = [
     "get_current_context",
     "transaction",
     "transactional",
+    # PostgreSQL subsystem
+    "PostgresErrorDetails",
+    "PostgresErrorCategory",
+    "parse_postgres_error",
+    "SessionActivity",
+    "LockInfo",
+    "DiagnosticReport",
+    "DiagnosticMode",
+    "DiagnosticCollector",
+    "build_diagnostic_report",
 ]
