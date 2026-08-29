@@ -10,6 +10,16 @@ from pgshield.instrumentation import (
     TransactionLogger,
     sanitize_value,
 )
+from pgshield.integrations import (
+    AsyncpgConnectionAdapter,
+    AsyncpgTransactionRunner,
+    SQLAlchemySessionAdapter,
+    SQLAlchemyTransactionRunner,
+    extract_asyncpg_sqlstate,
+    extract_sqlalchemy_sqlstate,
+    run_asyncpg_transaction,
+    run_sqlalchemy_transaction,
+)
 from pgshield.postgres import (
     DiagnosticCollector,
     DiagnosticMode,
@@ -82,4 +92,13 @@ __all__ = [
     "InMemoryMetricsCollector",
     "NullMetricsCollector",
     "MetricsSnapshot",
+    # Integrations
+    "SQLAlchemySessionAdapter",
+    "SQLAlchemyTransactionRunner",
+    "run_sqlalchemy_transaction",
+    "extract_sqlalchemy_sqlstate",
+    "AsyncpgConnectionAdapter",
+    "AsyncpgTransactionRunner",
+    "run_asyncpg_transaction",
+    "extract_asyncpg_sqlstate",
 ]
