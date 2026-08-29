@@ -1,5 +1,15 @@
 """PGShield: PostgreSQL concurrency and retry toolkit for Python applications."""
 
+from pgshield.instrumentation import (
+    InMemoryMetricsCollector,
+    LoggedTransactionEvent,
+    MetricsCollector,
+    MetricsSnapshot,
+    NullMetricsCollector,
+    TransactionEventType,
+    TransactionLogger,
+    sanitize_value,
+)
 from pgshield.postgres import (
     DiagnosticCollector,
     DiagnosticMode,
@@ -63,4 +73,13 @@ __all__ = [
     "DiagnosticMode",
     "DiagnosticCollector",
     "build_diagnostic_report",
+    # Instrumentation subsystem
+    "TransactionLogger",
+    "LoggedTransactionEvent",
+    "TransactionEventType",
+    "sanitize_value",
+    "MetricsCollector",
+    "InMemoryMetricsCollector",
+    "NullMetricsCollector",
+    "MetricsSnapshot",
 ]

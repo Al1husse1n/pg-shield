@@ -15,10 +15,12 @@ from typing import (
     ParamSpec,
     Set,
     TypeVar,
-    cast,
     overload,
 )
 
+from pgshield.instrumentation.logging import TransactionLogger
+from pgshield.instrumentation.metrics import MetricsCollector
+from pgshield.postgres.diagnostics import DiagnosticCollector
 from pgshield.retry.backoff import RandomFloatGenerator
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.runner import (
@@ -44,6 +46,9 @@ def transaction(
     policy: Optional[RetryPolicy] = None,
     adapter: Optional[TransactionAdapter] = None,
     runner: Optional[TransactionRunner] = None,
+    logger: Optional[TransactionLogger] = None,
+    metrics: Optional[MetricsCollector] = None,
+    diagnostics: Optional[DiagnosticCollector] = None,
     max_attempts: Optional[int] = None,
     base_delay: Optional[float] = None,
     max_delay: Optional[float] = None,
@@ -62,6 +67,9 @@ def transaction(
     policy: Optional[RetryPolicy] = None,
     adapter: Optional[TransactionAdapter] = None,
     runner: Optional[TransactionRunner] = None,
+    logger: Optional[TransactionLogger] = None,
+    metrics: Optional[MetricsCollector] = None,
+    diagnostics: Optional[DiagnosticCollector] = None,
     max_attempts: Optional[int] = None,
     base_delay: Optional[float] = None,
     max_delay: Optional[float] = None,
@@ -90,6 +98,9 @@ def transaction(
         policy: Optional custom RetryPolicy.
         adapter: Optional TransactionAdapter to manage begin/commit/rollback boundaries.
         runner: Optional pre-configured TransactionRunner instance.
+        logger: Optional TransactionLogger.
+        metrics: Optional MetricsCollector.
+        diagnostics: Optional DiagnosticCollector.
         max_attempts: Shorthand override for policy max_attempts.
         base_delay: Shorthand override for policy base_delay.
         max_delay: Shorthand override for policy max_delay.
@@ -104,12 +115,10 @@ def transaction(
     """
 
     def decorator(target_fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-        # Resolve effective runner
         effective_runner: TransactionRunner
         if runner is not None:
             effective_runner = runner
         else:
-            # Build or customize RetryPolicy if custom kwargs were provided
             effective_policy: RetryPolicy
             if policy is not None:
                 effective_policy = policy
@@ -144,6 +153,9 @@ def transaction(
             effective_runner = TransactionRunner(
                 policy=effective_policy,
                 adapter=adapter,
+                logger=logger,
+                metrics=metrics,
+                diagnostics=diagnostics,
                 sleep_func=sleep_func,
                 random_func=random_func,
             )
@@ -152,18 +164,13 @@ def transaction(
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             return await effective_runner.run(target_fn, *args, **kwargs)
 
-        # Expose underlying runner on the decorated function for inspection/testing
         setattr(wrapper, "__pgshield_runner__", effective_runner)
-
         return wrapper
 
     if fn is not None:
-        # Decorator used without arguments: @transaction
         return decorator(fn)
 
-    # Decorator used with arguments: @transaction(...)
     return decorator
 
 
-# Convenient alias
 transactional = transaction

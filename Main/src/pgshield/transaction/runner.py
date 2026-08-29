@@ -1,7 +1,8 @@
 """Transaction runner implementation for PGShield.
 
 This module provides the central TransactionRunner orchestrating whole-transaction
-retries with rollback, error classification, and jittered exponential backoff.
+retries with rollback, error classification, jittered exponential backoff, structured
+logging, metrics collection, and optional diagnostics.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ from typing import (
     runtime_checkable,
 )
 
+from pgshield.instrumentation.logging import TransactionLogger
+from pgshield.instrumentation.metrics import MetricsCollector, NullMetricsCollector
+from pgshield.postgres.diagnostics import DiagnosticCollector, DiagnosticReport
 from pgshield.retry.backoff import RandomFloatGenerator, calculate_backoff
 from pgshield.retry.classifier import ClassificationResult, classify_error
 from pgshield.retry.policy import RetryPolicy
@@ -75,19 +79,21 @@ class NullTransactionAdapter:
 
 @dataclass(frozen=True, slots=True)
 class TransactionResult(Generic[T]):
-    """Result of a transaction execution including value and attempt history.
+    """Result of a transaction execution including value, metadata, and attempt history.
 
     Attributes:
         value: The value returned by the transactional operation.
         total_attempts: Total number of attempts executed.
         total_duration: Total execution time in seconds across all attempts.
         history: Sequence of AttemptRecords describing each attempt.
+        diagnostic_report: Optional DiagnosticReport if diagnostics were captured.
     """
 
     value: T
     total_attempts: int
     total_duration: float
     history: List[AttemptRecord]
+    diagnostic_report: Optional[DiagnosticReport] = None
 
     @property
     def retried(self) -> bool:
@@ -112,6 +118,7 @@ class TransactionRunner:
     6. Only retryable exceptions (40001, 40P01, or custom) trigger a backoff delay and retry.
     7. Non-retryable exceptions or exhausted attempts immediately propagate.
     8. Backoff delay occurs strictly AFTER rollback and BEFORE the next attempt.
+    9. Emits structured log events and metrics throughout the transaction lifecycle.
     """
 
     def __init__(
@@ -119,6 +126,9 @@ class TransactionRunner:
         policy: Optional[RetryPolicy] = None,
         adapter: Optional[TransactionAdapter] = None,
         *,
+        logger: Optional[TransactionLogger] = None,
+        metrics: Optional[MetricsCollector] = None,
+        diagnostics: Optional[DiagnosticCollector] = None,
         sleep_func: Optional[SleepCallable] = None,
         random_func: Optional[RandomFloatGenerator] = None,
     ) -> None:
@@ -128,11 +138,17 @@ class TransactionRunner:
             policy: RetryPolicy governing attempt limits, delays, and backoff.
                 Defaults to standard RetryPolicy().
             adapter: Optional default TransactionAdapter controlling transaction boundaries.
+            logger: Optional TransactionLogger for structured event logging.
+            metrics: Optional MetricsCollector for transaction telemetry.
+            diagnostics: Optional DiagnosticCollector for pg_locks/pg_stat_activity analysis.
             sleep_func: Async sleep callable for backoff delays (defaults to asyncio.sleep).
             random_func: Injectable random generator for deterministic jitter testing.
         """
         self._policy = policy if policy is not None else RetryPolicy()
         self._default_adapter = adapter
+        self._logger = logger if logger is not None else TransactionLogger(enabled=False)
+        self._metrics = metrics if metrics is not None else NullMetricsCollector()
+        self._diagnostics = diagnostics
         self._sleep_func = sleep_func if sleep_func is not None else asyncio.sleep
         self._random_func = random_func
 
@@ -145,6 +161,16 @@ class TransactionRunner:
     def default_adapter(self) -> Optional[TransactionAdapter]:
         """Return the default TransactionAdapter if configured."""
         return self._default_adapter
+
+    @property
+    def logger(self) -> TransactionLogger:
+        """Return the configured TransactionLogger."""
+        return self._logger
+
+    @property
+    def metrics(self) -> MetricsCollector:
+        """Return the configured MetricsCollector."""
+        return self._metrics
 
     async def run(
         self,
@@ -201,18 +227,31 @@ class TransactionRunner:
         active_adapter = adapter if adapter is not None else self._default_adapter
         overall_start_time = time.monotonic()
 
+        tx_meta = dict(metadata) if metadata is not None else {}
+        tx_id = str(tx_meta.get("transaction_id", "")) or None
+
         ctx = TransactionContext(
             attempt=1,
             max_attempts=self._policy.max_attempts,
             start_time=overall_start_time,
-            metadata=dict(metadata) if metadata is not None else {},
+            metadata=tx_meta,
         )
         token = _set_current_context(ctx)
+
+        self._metrics.record_transaction_started(transaction_id=tx_id)
+
+        last_diag_report: Optional[DiagnosticReport] = None
 
         try:
             for attempt_idx in range(self._policy.max_attempts):
                 ctx.attempt = attempt_idx + 1
                 attempt_start = time.monotonic()
+
+                self._logger.log_started(
+                    attempt=ctx.attempt,
+                    transaction_id=tx_id,
+                    metadata=tx_meta,
+                )
 
                 # 1. Begin transaction boundary if an adapter is active
                 if active_adapter is not None:
@@ -227,6 +266,8 @@ class TransactionRunner:
                         await active_adapter.commit()
 
                     attempt_duration = time.monotonic() - attempt_start
+                    total_duration = time.monotonic() - overall_start_time
+
                     ctx.history.append(
                         AttemptRecord(
                             attempt_number=ctx.attempt,
@@ -238,12 +279,24 @@ class TransactionRunner:
                         )
                     )
 
-                    total_duration = time.monotonic() - overall_start_time
+                    self._logger.log_committed(
+                        attempt=ctx.attempt,
+                        duration=attempt_duration,
+                        transaction_id=tx_id,
+                        metadata=tx_meta,
+                    )
+                    self._metrics.record_transaction_committed(
+                        duration=total_duration,
+                        attempts=ctx.attempt,
+                        transaction_id=tx_id,
+                    )
+
                     return TransactionResult(
                         value=result,
                         total_attempts=ctx.attempt,
                         total_duration=total_duration,
                         history=list(ctx.history),
+                        diagnostic_report=last_diag_report,
                     )
 
                 except BaseException as exc:
@@ -257,6 +310,7 @@ class TransactionRunner:
                         raise
 
                     attempt_duration = time.monotonic() - attempt_start
+                    total_duration = time.monotonic() - overall_start_time
 
                     # 4a. Roll back immediately on any transaction failure
                     if active_adapter is not None:
@@ -272,7 +326,28 @@ class TransactionRunner:
                         retryable_sqlstates=self._policy.retryable_sqlstates,
                     )
 
+                    self._logger.log_rolled_back(
+                        attempt=ctx.attempt,
+                        duration=attempt_duration,
+                        transaction_id=tx_id,
+                        sqlstate=classification.sqlstate,
+                        error_message=str(exc),
+                        metadata=tx_meta,
+                    )
+
                     is_last_attempt = (attempt_idx + 1) >= self._policy.max_attempts
+
+                    # Collect optional diagnostics if configured
+                    if self._diagnostics is not None:
+                        try:
+                            last_diag_report = await self._diagnostics.collect(
+                                error=exc,
+                                attempt=ctx.attempt,
+                                duration=attempt_duration,
+                                transaction_id=tx_id,
+                            )
+                        except Exception:
+                            pass
 
                     # 4c. Non-retryable error OR reached max attempts: fail immediately
                     if not classification.retryable or is_last_attempt:
@@ -285,6 +360,22 @@ class TransactionRunner:
                                 classification=classification,
                                 backoff_delay=0.0,
                             )
+                        )
+
+                        self._logger.log_failed(
+                            attempt=ctx.attempt,
+                            duration=total_duration,
+                            transaction_id=tx_id,
+                            sqlstate=classification.sqlstate,
+                            error_category=classification.category.value,
+                            error_message=str(exc),
+                            metadata=tx_meta,
+                        )
+                        self._metrics.record_transaction_failed(
+                            duration=total_duration,
+                            attempts=ctx.attempt,
+                            sqlstate=classification.sqlstate,
+                            error_category=classification.category.value,
                         )
                         raise exc
 
@@ -303,6 +394,23 @@ class TransactionRunner:
                             classification=classification,
                             backoff_delay=delay,
                         )
+                    )
+
+                    self._logger.log_retry(
+                        attempt=ctx.attempt,
+                        retry_delay=delay,
+                        duration=attempt_duration,
+                        transaction_id=tx_id,
+                        sqlstate=classification.sqlstate,
+                        error_category=classification.category.value,
+                        error_message=str(exc),
+                        metadata=tx_meta,
+                    )
+                    self._metrics.record_transaction_retry(
+                        attempt=ctx.attempt,
+                        delay=delay,
+                        sqlstate=classification.sqlstate,
+                        error_category=classification.category.value,
                     )
 
                     # 4e. Sleep AFTER rollback and BEFORE starting the next attempt
