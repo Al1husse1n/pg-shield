@@ -1,7 +1,7 @@
 [project]
-name = "main"
+name = "pgshield"
 version = "0.1.0"
-description = ""
+description = "PostgreSQL concurrency and retry toolkit for Python applications"
 authors = [
     {name = "Ali Hussein",email = "ah0979075074@gmail.com"}
 ]
@@ -11,8 +11,14 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "main", from = "src"}]
+packages = [{include = "pgshield", from = "src"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)",
+    "pytest-asyncio (>=1.4.0,<2.0.0)"
+]
