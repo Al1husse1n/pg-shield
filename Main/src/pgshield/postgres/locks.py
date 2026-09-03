@@ -25,9 +25,9 @@ from pgshield.postgres.activity import QueryExecutor
 LOCKS_QUERY_BASE = """
 SELECT
     l.pid,
-    l.locktype AS lock_type,
+    l.locktype AS lock_type,            
     l.mode,
-    l.granted,
+    l.granted,                      
     COALESCE(c.relname, '') AS relation_name,
     COALESCE(n.nspname, '') AS schema_name,
     l.page,
@@ -40,7 +40,9 @@ LEFT JOIN pg_namespace n ON c.relnamespace = n.oid
 WHERE l.pid <> pg_backend_pid()
 ORDER BY l.granted ASC, l.pid ASC
 """
-
+#l=the table pg_locks
+#c=table pg_class(the system table storing metadata about tables, indexes, and views)
+#n=stands for pg_namespace (the system table storing database schemas) 
 
 @dataclass(frozen=True, slots=True)
 class LockInfo:
