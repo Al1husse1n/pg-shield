@@ -7,7 +7,7 @@ backend processes and their wait states during concurrency diagnostic workflows.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime               
 from typing import (
     Any,
     Awaitable,
@@ -36,7 +36,7 @@ SELECT
     wait_event_type,
     wait_event
 FROM pg_stat_activity
-WHERE pid <> pg_backend_pid()
+WHERE pid <> pg_backend_pid()           #Excludes the current session that is running this query
 """
 
 # Query including a truncated/safe query snippet when explicitly enabled
@@ -52,19 +52,19 @@ SELECT
     xact_start,
     wait_event_type,
     wait_event,
-    LEFT(query, 120) AS query_snippet
+    LEFT(query, 120) AS query_snippet           #contains first 120 characters of the associated query (alternative/optional for security purposes)
 FROM pg_stat_activity
 WHERE pid <> pg_backend_pid()
 """
 
 
-@runtime_checkable
+@runtime_checkable          #useful to pass isinstance check for protocol, but not necessarily needed here
 class QueryExecutor(Protocol):
     """Protocol for executing read-only diagnostic queries against PostgreSQL."""
 
     async def execute_query(
         self, sql: str, params: Optional[Sequence[Any]] = None
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> Sequence[Mapping[str, Any]]:       #str key and any value
         """Execute a SQL query and return rows as dictionaries or mapping objects."""
         ...
 
@@ -75,7 +75,7 @@ class SessionActivity:
 
     Attributes:
         pid: Process ID of the backend server.
-        database: Database name the backend is connected to.
+        database: Database name the backend is connected to.    
         username: Name of the authenticated database user.
         application_name: Client application name.
         client_addr: Client IP address (if TCP connection).
@@ -176,7 +176,7 @@ def build_activity_query(
     clauses: List[str] = []
 
     if filter_database is not None:
-        safe_db = filter_database.replace("'", "''")
+        safe_db = filter_database.replace("'", "''")        #escaping
         clauses.append(f"datname = '{safe_db}'")
 
     if filter_pids:
@@ -212,5 +212,5 @@ async def fetch_activity(
         filter_database=filter_database,
         filter_pids=filter_pids,
     )
-    rows = await executor.execute_query(sql)
+    rows = await executor.execute_query(sql)                #the protocol must be defined using an adapter in integration, since asyncpg and sqlalchemy doesnt have execute_query in them
     return parse_activity_rows(rows, include_query_snippet=include_query_snippet)
