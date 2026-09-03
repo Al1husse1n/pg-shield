@@ -41,7 +41,7 @@ class PostgresErrorCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True)     #cannot modify instances after creation
 class PostgresErrorDetails:
     """Normalized, driver-agnostic details extracted from a PostgreSQL exception.
 
@@ -138,15 +138,15 @@ def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
         )
 
     # Locate underlying driver exception if wrapped (e.g. SQLAlchemy DBAPIError.orig)
-    underlying: BaseException = error
-    orig = getattr(error, "orig", None)
+    underlying: BaseException = error       
+    orig = getattr(error, "orig", None)     #SQLAlchemy database exceptions commonly have an underlying exception accessible through orig
     if isinstance(orig, BaseException):
         underlying = orig
     elif isinstance(getattr(error, "__cause__", None), BaseException):
         underlying = getattr(error, "__cause__")
 
     # Extract SQLSTATE
-    raw_sqlstate = _extract_attribute(underlying, "sqlstate", "pgcode", "code")
+    raw_sqlstate = _extract_attribute(underlying, "sqlstate", "pgcode", "code")     #different names from different drivers
     sqlstate: Optional[str] = None
     if isinstance(raw_sqlstate, str) and len(raw_sqlstate) == 5:
         sqlstate = raw_sqlstate.upper()
