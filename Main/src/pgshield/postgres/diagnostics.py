@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import logging
 import random
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+_logger = logging.getLogger("pgshield.postgres.diagnostics")
 
 from pgshield.postgres.activity import QueryExecutor, SessionActivity, fetch_activity
 from pgshield.postgres.errors import (
@@ -145,6 +148,20 @@ def generate_explanation(
             f"a transient concurrency conflict."
         )
         recommendations.append("Do not retry automatically without correcting the underlying data.")
+
+    elif error_details.category == PostgresErrorCategory.STATEMENT_TIMEOUT:
+        explanation = (
+            f"Statement timeout exceeded (SQLSTATE {error_details.sqlstate}). The query was canceled "
+            f"because it exceeded PostgreSQL's statement_timeout setting."
+        )
+        recommendations.append("Inspect slow queries or adjust statement_timeout if appropriate.")
+
+    elif error_details.message == "No error occurred" or (
+        error_details.sqlstate is None
+        and error_details.category == PostgresErrorCategory.UNKNOWN
+        and not error_details.driver_error_type
+    ):
+        explanation = "Transaction completed without error."
 
     else:
         explanation = f"Database error encountered: {error_details.message}"
@@ -284,7 +301,7 @@ class DiagnosticCollector:
         if not self.should_collect(has_error):
             return None
 
-        active_executor = executor_override or self.executor
+        active_executor = executor_override or self.executor            #incase you want a different connection/executor other than defined initially
 
         sessions: List[SessionActivity] = []
         locks: List[LockInfo] = []
@@ -292,13 +309,13 @@ class DiagnosticCollector:
         if active_executor is not None:
             try:
                 sessions = await fetch_activity(active_executor)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.debug("Failed to fetch pg_stat_activity during diagnostics: %s", exc)
 
             try:
                 locks = await fetch_locks(active_executor)
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.debug("Failed to fetch pg_locks during diagnostics: %s", exc)
 
         return build_diagnostic_report(
             error=error,

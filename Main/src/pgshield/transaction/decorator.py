@@ -22,6 +22,7 @@ from pgshield.instrumentation.logging import TransactionLogger
 from pgshield.instrumentation.metrics import MetricsCollector
 from pgshield.postgres.diagnostics import DiagnosticCollector
 from pgshield.retry.backoff import RandomFloatGenerator
+from pgshield.retry.classifier import SQLStateExtractor
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.runner import (
     SleepCallable,
@@ -57,6 +58,7 @@ def transaction(
     retryable_sqlstates: Optional[Set[str]] = None,
     sleep_func: Optional[SleepCallable] = None,
     random_func: Optional[RandomFloatGenerator] = None,
+    custom_extractor: Optional[SQLStateExtractor] = None,
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     ...
 
@@ -78,6 +80,7 @@ def transaction(
     retryable_sqlstates: Optional[Set[str]] = None,
     sleep_func: Optional[SleepCallable] = None,
     random_func: Optional[RandomFloatGenerator] = None,
+    custom_extractor: Optional[SQLStateExtractor] = None,
 ) -> Any:
     """Decorator to execute an async function with automatic whole-transaction retries.
 
@@ -158,6 +161,7 @@ def transaction(
                 diagnostics=diagnostics,
                 sleep_func=sleep_func,
                 random_func=random_func,
+                custom_extractor=custom_extractor,
             )
 
         @functools.wraps(target_fn)

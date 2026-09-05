@@ -34,18 +34,32 @@ class TransactionEventType(str, Enum):
     TRANSACTION_FAILED = "transaction_failed"
 
 
-def sanitize_value(val: Any) -> Any:
+def sanitize_value(val: Any, _visited: Optional[set[int]] = None) -> Any:
     """Recursively redact sensitive key-value pairs or connection strings."""
     if isinstance(val, Mapping):
+        if _visited is None:
+            _visited = set()
+        val_id = id(val)
+        if val_id in _visited:
+            return "<cyclic-reference>"
+        _visited.add(val_id)
+
         sanitized: Dict[str, Any] = {}
         for k, v in val.items():
             if isinstance(k, str) and SENSITIVE_KEY_PATTERN.search(k):
                 sanitized[k] = REDACTED_VALUE
             else:
-                sanitized[k] = sanitize_value(v)
+                sanitized[k] = sanitize_value(v, _visited)
         return sanitized
     elif isinstance(val, (list, tuple)):
-        return [sanitize_value(item) for item in val]
+        if _visited is None:
+            _visited = set()
+        val_id = id(val)
+        if val_id in _visited:
+            return ["<cyclic-reference>"]
+        _visited.add(val_id)
+
+        return [sanitize_value(item, _visited) for item in val]
     elif isinstance(val, str):
         # Basic credential masking in URLs (e.g. postgresql://user:pass@host/db)
         if "://" in val and "@" in val:

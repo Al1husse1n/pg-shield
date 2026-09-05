@@ -55,7 +55,9 @@ class ClassificationResult:
 SQLStateExtractor = Callable[[BaseException], Optional[str]]
 
 
-def extract_sqlstate(error: BaseException) -> Optional[str]:
+def extract_sqlstate(
+    error: BaseException, _visited: Optional[set[int]] = None
+) -> Optional[str]:
     """Extract a 5-character PostgreSQL SQLSTATE from an exception.
 
     Inspects common driver attributes across asyncpg, psycopg2, psycopg3,
@@ -70,6 +72,13 @@ def extract_sqlstate(error: BaseException) -> Optional[str]:
     if not isinstance(error, BaseException):
         return None
 
+    if _visited is None:
+        _visited = set()
+    err_id = id(error)
+    if err_id in _visited:
+        return None
+    _visited.add(err_id)
+
     # Check direct attributes on the exception
     for attr in ("sqlstate", "pgcode", "code"):
         val = getattr(error, attr, None)
@@ -79,21 +88,21 @@ def extract_sqlstate(error: BaseException) -> Optional[str]:
     # Check for wrapped/underlying driver error (e.g. SQLAlchemy DBAPIError.orig)
     orig = getattr(error, "orig", None)
     if orig is not None and isinstance(orig, BaseException) and orig is not error:
-        extracted = extract_sqlstate(orig)
+        extracted = extract_sqlstate(orig, _visited)
         if extracted is not None:
             return extracted
 
     # Check __cause__ chain
     cause = getattr(error, "__cause__", None)
     if cause is not None and isinstance(cause, BaseException) and cause is not error:
-        extracted = extract_sqlstate(cause)
+        extracted = extract_sqlstate(cause, _visited)
         if extracted is not None:
             return extracted
 
     # Check __context__ chain
     context = getattr(error, "__context__", None)
     if context is not None and isinstance(context, BaseException) and context is not error:
-        extracted = extract_sqlstate(context)
+        extracted = extract_sqlstate(context, _visited)
         if extracted is not None:
             return extracted
 

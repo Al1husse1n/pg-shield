@@ -5,6 +5,7 @@ import pytest
 
 from pgshield.instrumentation.logging import TransactionLogger
 from pgshield.instrumentation.metrics import InMemoryMetricsCollector
+from pgshield.postgres.diagnostics import DiagnosticCollector, DiagnosticMode
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.runner import TransactionRunner
 
@@ -133,3 +134,42 @@ class TestRunnerInstrumentation:
 
         # Log verification
         assert "Transaction failed permanently [tx-deadlock-1] (SQLSTATE 40P01) after 2 attempt(s)" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_runner_with_custom_extractor(self):
+        class CustomAppError(Exception):
+            def get_code(self):
+                return "40001"
+
+        attempts = 0
+        sleeper = MockSleepRecorder()
+
+        runner = TransactionRunner(
+            policy=RetryPolicy(max_attempts=3, base_delay=0.01),
+            sleep_func=sleeper,
+            custom_extractor=lambda e: getattr(e, "get_code", lambda: None)(),
+        )
+
+        async def op():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise CustomAppError("custom conflict")
+            return "ok"
+
+        res = await runner.run(op)
+        assert res == "ok"
+        assert attempts == 2
+
+    @pytest.mark.asyncio
+    async def test_runner_collects_diagnostics_on_success_with_always_mode(self):
+        diagnostics = DiagnosticCollector(mode=DiagnosticMode.ALWAYS)
+        runner = TransactionRunner(diagnostics=diagnostics)
+
+        async def op():
+            return "success_value"
+
+        result = await runner.run_with_result(op)
+        assert result.value == "success_value"
+        assert result.diagnostic_report is not None
+        assert result.diagnostic_report.explanation == "Transaction completed without error."

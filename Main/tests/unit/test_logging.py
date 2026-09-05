@@ -49,6 +49,13 @@ class TestLoggingSanitization:
         assert sanitized[1]["name"] == "test"
         assert sanitized[2] == 123
 
+    def test_sanitize_cyclic_structure(self):
+        d = {"name": "alice"}
+        d["self"] = d  # Cycle!
+        sanitized = sanitize_value(d)
+        assert sanitized["name"] == "alice"
+        assert sanitized["self"] == "<cyclic-reference>"
+
 
 class TestTransactionLogger:
     """Test TransactionLogger event emissions and formats."""

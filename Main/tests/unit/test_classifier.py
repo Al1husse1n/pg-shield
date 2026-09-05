@@ -177,3 +177,8 @@ class TestErrorClassifier:
         result = classify_error(err, custom_extractor=custom_extractor)
         assert result.retryable is True
         assert result.sqlstate == "40001"
+
+    def test_extract_sqlstate_with_cyclic_cause_does_not_hang(self):
+        err = Exception("cyclic error")
+        err.__cause__ = err  # Cycle!
+        assert extract_sqlstate(err) is None

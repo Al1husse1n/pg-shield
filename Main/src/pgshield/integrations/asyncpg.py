@@ -51,6 +51,8 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
 
     async def begin(self) -> None:
         """Create and start a new transaction boundary on the connection."""
+        if self._current_transaction is not None:
+            await self.rollback()
         self._current_transaction = self._connection.transaction()
         await self._current_transaction.start()
 

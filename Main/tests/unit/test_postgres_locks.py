@@ -154,3 +154,37 @@ class TestPostgresLocks:
         assert res[0].pid == 500
         assert res[0].relation_name == "items"
         assert "l.pid IN (500)" in executor.executed_sqls[0]
+
+    def test_detect_blocking_chains_with_different_virtual_transactions(self):
+        """Processes have distinct virtual_transaction IDs but contest the same relation."""
+        locks = [
+            LockInfo(
+                pid=101,
+                lock_type="relation",
+                mode="RowExclusiveLock",
+                granted=True,
+                relation_name="orders",
+                schema_name="public",
+                virtual_transaction="3/10",
+            ),
+            LockInfo(
+                pid=102,
+                lock_type="relation",
+                mode="AccessExclusiveLock",
+                granted=False,
+                relation_name="orders",
+                schema_name="public",
+                virtual_transaction="4/20",
+            ),
+        ]
+        blocking = detect_blocking_chains(locks)
+        assert len(blocking) == 1
+        assert blocking[0].blocked_pid == 102
+        assert blocking[0].blocking_pid == 101
+
+    def test_build_locks_query_order_by_placement(self):
+        q = build_locks_query(filter_pids=[10, 20])
+        # Ensure WHERE filter is before ORDER BY
+        pid_pos = q.index("l.pid IN (10, 20)")
+        order_pos = q.index("ORDER BY")
+        assert pid_pos < order_pos

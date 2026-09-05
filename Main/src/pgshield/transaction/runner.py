@@ -27,7 +27,11 @@ from pgshield.instrumentation.logging import TransactionLogger
 from pgshield.instrumentation.metrics import MetricsCollector, NullMetricsCollector
 from pgshield.postgres.diagnostics import DiagnosticCollector, DiagnosticReport
 from pgshield.retry.backoff import RandomFloatGenerator, calculate_backoff
-from pgshield.retry.classifier import ClassificationResult, classify_error
+from pgshield.retry.classifier import (
+    ClassificationResult,
+    SQLStateExtractor,
+    classify_error,
+)
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.context import (
     AttemptRecord,
@@ -131,6 +135,7 @@ class TransactionRunner:
         diagnostics: Optional[DiagnosticCollector] = None,
         sleep_func: Optional[SleepCallable] = None,
         random_func: Optional[RandomFloatGenerator] = None,
+        custom_extractor: Optional[SQLStateExtractor] = None,
     ) -> None:
         """Initialize TransactionRunner.
 
@@ -143,6 +148,7 @@ class TransactionRunner:
             diagnostics: Optional DiagnosticCollector for pg_locks/pg_stat_activity analysis.
             sleep_func: Async sleep callable for backoff delays (defaults to asyncio.sleep).
             random_func: Injectable random generator for deterministic jitter testing.
+            custom_extractor: Optional callable to extract SQLSTATE from custom exceptions.
         """
         self._policy = policy if policy is not None else RetryPolicy()
         self._default_adapter = adapter
@@ -151,6 +157,7 @@ class TransactionRunner:
         self._diagnostics = diagnostics
         self._sleep_func = sleep_func if sleep_func is not None else asyncio.sleep
         self._random_func = random_func
+        self._custom_extractor = custom_extractor
 
     @property
     def policy(self) -> RetryPolicy:
@@ -268,6 +275,17 @@ class TransactionRunner:
                     attempt_duration = time.monotonic() - attempt_start
                     total_duration = time.monotonic() - overall_start_time
 
+                    if self._diagnostics is not None and self._diagnostics.should_collect(has_error=False):
+                        try:
+                            last_diag_report = await self._diagnostics.collect(
+                                error=None,
+                                attempt=ctx.attempt,
+                                duration=attempt_duration,
+                                transaction_id=tx_id,
+                            )
+                        except Exception:
+                            pass
+
                     ctx.history.append(
                         AttemptRecord(
                             attempt_number=ctx.attempt,
@@ -324,6 +342,7 @@ class TransactionRunner:
                     classification = classify_error(
                         exc,
                         retryable_sqlstates=self._policy.retryable_sqlstates,
+                        custom_extractor=self._custom_extractor,
                     )
 
                     self._logger.log_rolled_back(

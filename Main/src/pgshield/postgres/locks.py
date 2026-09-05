@@ -38,7 +38,6 @@ FROM pg_locks l
 LEFT JOIN pg_class c ON l.relation = c.oid
 LEFT JOIN pg_namespace n ON c.relnamespace = n.oid
 WHERE l.pid <> pg_backend_pid()
-ORDER BY l.granted ASC, l.pid ASC
 """
 #l=the table pg_locks
 #c=table pg_class(the system table storing metadata about tables, indexes, and views)
@@ -87,14 +86,16 @@ class LockInfo:
     @property
     def target_key(self) -> Tuple[Any, ...]:
         """Return a hashable composite key uniquely identifying the locked resource."""
+        if self.lock_type == "virtualxid":
+            return (self.lock_type, self.virtual_transaction)
+        if self.lock_type == "transactionid":
+            return (self.lock_type, self.transaction_id)
         return (
             self.lock_type,
             self.relation_name,
             self.schema_name,
             self.page,
             self.tuple,
-            self.transaction_id,
-            self.virtual_transaction,
         )
 
 
@@ -232,11 +233,11 @@ def detect_blocking_chains(locks: Sequence[LockInfo]) -> List[BlockingRelationsh
 
 def build_locks_query(*, filter_pids: Optional[Sequence[int]] = None) -> str:
     """Construct a SQL query for pg_locks, optionally filtered by PIDs."""
-    if not filter_pids:
-        return LOCKS_QUERY_BASE
-
-    pids_str = ", ".join(str(int(p)) for p in filter_pids)
-    return f"{LOCKS_QUERY_BASE} AND l.pid IN ({pids_str})"
+    base = LOCKS_QUERY_BASE.strip()
+    if filter_pids:
+        pids_str = ", ".join(str(int(p)) for p in filter_pids)
+        base = f"{base} AND l.pid IN ({pids_str})"
+    return f"{base}\nORDER BY l.granted ASC, l.pid ASC\n"
 
 
 async def fetch_locks(
