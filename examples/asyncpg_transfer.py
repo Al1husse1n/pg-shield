@@ -13,15 +13,14 @@ import os
 import sys
 
 import asyncpg
+
 from pgshield import run_asyncpg_transaction
 
 
 async def main() -> None:
     dsn = os.environ.get("PGSHIELD_TEST_DSN")
     if not dsn:
-        print(
-            "Error: PGSHIELD_TEST_DSN environment variable is not set.", file=sys.stderr
-        )
+        print("Error: PGSHIELD_TEST_DSN environment variable is not set.", file=sys.stderr)
         print(
             "Example: export PGSHIELD_TEST_DSN="
             "'postgresql://postgres:postgres@localhost:5432/postgres'",
@@ -36,9 +35,7 @@ async def main() -> None:
             "CREATE TABLE IF NOT EXISTS demo_accounts (id INT PRIMARY KEY, balance INT);"
         )
         await conn.execute("TRUNCATE TABLE demo_accounts;")
-        await conn.execute(
-            "INSERT INTO demo_accounts (id, balance) VALUES (1, 1000), (2, 500);"
-        )
+        await conn.execute("INSERT INTO demo_accounts (id, balance) VALUES (1, 1000), (2, 500);")
 
         # 2. Define business logic for transfer
         async def transfer(c: asyncpg.Connection) -> None:
