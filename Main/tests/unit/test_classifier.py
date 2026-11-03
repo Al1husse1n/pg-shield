@@ -29,6 +29,8 @@ class DummyDriverError(Exception):
         if code is not None:
             self.code = code
 
+DummyDriverError.__module__ = "asyncpg.exceptions"
+
 
 class DummyWrappedError(Exception):
     """Mock ORM/wrapper exception like SQLAlchemy DBAPIError."""
@@ -36,6 +38,8 @@ class DummyWrappedError(Exception):
     def __init__(self, message: str, orig: Exception | None = None):
         super().__init__(message)
         self.orig = orig
+
+DummyWrappedError.__module__ = "sqlalchemy.exc"
 
 
 class TestSQLStateExtraction:
@@ -182,3 +186,25 @@ class TestErrorClassifier:
         err = Exception("cyclic error")
         err.__cause__ = err  # Cycle!
         assert extract_sqlstate(err) is None
+
+    def test_fake_error_with_code_not_classified_retryable(self):
+        """A plain exception carrying code='40001' without PostgreSQL driver evidence is not retryable."""
+        class FakeError(Exception):
+            code = "40001"
+
+        err = FakeError("fake error with code 40001")
+        assert extract_sqlstate(err) is None
+        result = classify_error(err)
+        assert result.retryable is False
+        assert result.sqlstate is None
+        assert result.category == ErrorCategory.UNKNOWN
+        assert is_retryable(err) is False
+
+    def test_mock_driver_error_in_wrong_module_not_retryable(self):
+        """A class named MockDriverError but in the wrong module is NOT retryable."""
+        class MockDriverError(Exception):
+            code = "40001"
+        MockDriverError.__module__ = "myapp.errors"
+        result = classify_error(MockDriverError("x"))
+        assert result.retryable is False
+        assert result.sqlstate is None

@@ -12,11 +12,14 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    Mapping,
     Optional,
+    Sequence,
     TypeVar,
     Union,
 )
 
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,21 +56,48 @@ class SQLAlchemySessionAdapter(TransactionAdapter):
         return self._session
 
     async def begin(self) -> None:
-        """Begin a new database transaction if not already inside an active transaction."""
-        if not self._session.in_transaction():
-            await self._session.begin()
+        """Begin a new database transaction. Refuses sessions already in a transaction."""
+        if self._session.in_transaction():
+            raise RuntimeError(
+                "PGShield cannot begin a transaction on a session that is already in a transaction. "
+                "Pass a session with no active transaction, or wrap your own boundary around a fresh session."
+            )
+        await self._session.begin()
 
     async def commit(self) -> None:
-        """Commit the current database transaction."""
+        """Commit the database transaction (PGShield only owns the transaction it started)."""
         await self._session.commit()
 
     async def rollback(self) -> None:
-        """Roll back the current database transaction and reset session state."""
+        """Roll back the database transaction (PGShield only owns the transaction it started)."""
         try:
             await self._session.rollback()
         except Exception:
             # Prevent rollback failure from masking primary database exceptions
             pass
+
+
+class SQLAlchemyQueryExecutor:
+    """Concrete QueryExecutor adapter for SQLAlchemy AsyncSession.
+
+    Executes read-only diagnostic queries using an active AsyncSession
+    and returns results as a sequence of plain Python dictionaries.
+    Does NOT commit; only reads.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def execute_query(
+        self, sql: str, params: Optional[Sequence[Any]] = None
+    ) -> Sequence[Mapping[str, Any]]:
+        """Execute a read query and return rows as mappings coerced to plain dicts."""
+        stmt = text(sql)
+        if params is not None and len(params) > 0:
+            result = await self._session.execute(stmt, params)
+        else:
+            result = await self._session.execute(stmt)
+        return [dict(row) for row in result.mappings().all()]
 
 
 def extract_sqlalchemy_sqlstate(error: BaseException) -> Optional[str]:

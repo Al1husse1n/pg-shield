@@ -7,11 +7,13 @@ Provides:
 
 from pgshield.integrations.asyncpg import (
     AsyncpgConnectionAdapter,
+    AsyncpgQueryExecutor,
     AsyncpgTransactionRunner,
     extract_asyncpg_sqlstate,
     run_asyncpg_transaction,
 )
 from pgshield.integrations.sqlalchemy import (
+    SQLAlchemyQueryExecutor,
     SQLAlchemySessionAdapter,
     SQLAlchemyTransactionRunner,
     extract_sqlalchemy_sqlstate,
@@ -21,11 +23,13 @@ from pgshield.integrations.sqlalchemy import (
 __all__ = [
     # sqlalchemy
     "SQLAlchemySessionAdapter",
+    "SQLAlchemyQueryExecutor",
     "SQLAlchemyTransactionRunner",
     "extract_sqlalchemy_sqlstate",
     "run_sqlalchemy_transaction",
     # asyncpg
     "AsyncpgConnectionAdapter",
+    "AsyncpgQueryExecutor",
     "AsyncpgTransactionRunner",
     "extract_asyncpg_sqlstate",
     "run_asyncpg_transaction",

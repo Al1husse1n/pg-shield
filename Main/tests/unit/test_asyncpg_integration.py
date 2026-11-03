@@ -7,6 +7,7 @@ import pytest
 
 from pgshield.integrations.asyncpg import (
     AsyncpgConnectionAdapter,
+    AsyncpgQueryExecutor,
     AsyncpgTransactionRunner,
     extract_asyncpg_sqlstate,
     run_asyncpg_transaction,
@@ -28,6 +29,7 @@ class TestAsyncpgIntegration:
     @pytest.mark.asyncio
     async def test_connection_adapter_lifecycle(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
+        mock_conn.is_in_transaction.return_value = False
         mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
@@ -50,6 +52,38 @@ class TestAsyncpgIntegration:
         await adapter.rollback()
         mock_tx.rollback.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_connection_adapter_refuses_already_in_transaction(self):
+        """begin() on a connection already in a transaction raises RuntimeError."""
+        mock_conn = MagicMock(spec=asyncpg.Connection)
+        mock_conn.is_in_transaction.return_value = True
+
+        adapter = AsyncpgConnectionAdapter(mock_conn)
+
+        expected_msg = (
+            "PGShield cannot begin a transaction on an asyncpg connection that is already in a transaction. "
+            "Acquire a fresh connection from your pool for each retryable operation, or wrap your own boundary."
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            await adapter.begin()
+
+        assert str(exc_info.value) == expected_msg
+        mock_conn.transaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_connection_adapter_begin_clean_connection(self):
+        """begin() on a clean connection starts a transaction."""
+        mock_conn = MagicMock(spec=asyncpg.Connection)
+        mock_conn.is_in_transaction.return_value = False
+        mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
+        mock_tx.start = AsyncMock()
+        mock_conn.transaction.return_value = mock_tx
+
+        adapter = AsyncpgConnectionAdapter(mock_conn)
+        await adapter.begin()
+        mock_conn.transaction.assert_called_once()
+        mock_tx.start.assert_awaited_once()
+
     def test_extract_sqlstate_from_asyncpg_exceptions(self):
         # asyncpg exceptions carry sqlstate attribute
         err_40001 = asyncpg.exceptions.SerializationError("could not serialize access")
@@ -64,6 +98,7 @@ class TestAsyncpgIntegration:
     @pytest.mark.asyncio
     async def test_run_asyncpg_transaction_retries_on_40001(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
+        mock_conn.is_in_transaction.return_value = False
         mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
@@ -98,6 +133,7 @@ class TestAsyncpgIntegration:
     @pytest.mark.asyncio
     async def test_run_asyncpg_transaction_fails_immediately_on_23505(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
+        mock_conn.is_in_transaction.return_value = False
         mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
@@ -125,3 +161,20 @@ class TestAsyncpgIntegration:
         assert len(sleeper.delays) == 0
         assert mock_tx.rollback.await_count == 1
         assert mock_tx.commit.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_asyncpg_query_executor_protocol_and_execution(self):
+        """AsyncpgQueryExecutor satisfies QueryExecutor protocol and returns dicts."""
+        from pgshield.postgres.activity import QueryExecutor
+
+        mock_conn = MagicMock(spec=asyncpg.Connection)
+        fake_record = {"pid": 1234, "state": "active"}
+        mock_conn.fetch = AsyncMock(return_value=[fake_record])
+
+        executor = AsyncpgQueryExecutor(mock_conn)
+        assert isinstance(executor, QueryExecutor)
+
+        rows = await executor.execute_query("SELECT pid, state FROM pg_stat_activity WHERE pid = $1", [1234])
+        mock_conn.fetch.assert_awaited_once_with("SELECT pid, state FROM pg_stat_activity WHERE pid = $1", 1234)
+        assert rows == [{"pid": 1234, "state": "active"}]
+        assert isinstance(rows[0], dict)

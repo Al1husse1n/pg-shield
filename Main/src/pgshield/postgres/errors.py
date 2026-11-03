@@ -118,6 +118,13 @@ def _extract_attribute(target: Any, *attr_names: str) -> Optional[Any]:
     return None
 
 
+from pgshield._driver_evidence import (
+    _DRIVER_CLASS_ALLOWLIST,
+    _DRIVER_MODULE_KEYWORDS,
+    _has_postgres_driver_evidence,
+)
+
+
 def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
     """Parse and normalize an arbitrary exception into structured PostgresErrorDetails.
 
@@ -145,11 +152,12 @@ def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
     elif isinstance(getattr(error, "__cause__", None), BaseException):
         underlying = getattr(error, "__cause__")
 
-    # Extract SQLSTATE
-    raw_sqlstate = _extract_attribute(underlying, "sqlstate", "pgcode", "code")     #different names from different drivers
+    # Extract SQLSTATE only if driver evidence exists
     sqlstate: Optional[str] = None
-    if isinstance(raw_sqlstate, str) and len(raw_sqlstate) == 5:
-        sqlstate = raw_sqlstate.upper()
+    if _has_postgres_driver_evidence(underlying) or _has_postgres_driver_evidence(error):
+        raw_sqlstate = _extract_attribute(underlying, "sqlstate", "pgcode", "code")     #different names from different drivers
+        if isinstance(raw_sqlstate, str) and len(raw_sqlstate) == 5:
+            sqlstate = raw_sqlstate.upper()
 
     # Extract diagnostic fields
     detail = _extract_attribute(underlying, "detail", "pgerror_detail")

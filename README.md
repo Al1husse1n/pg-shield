@@ -196,7 +196,7 @@ The `TransactionRunner` is the central orchestrator in PGShield. It guarantees t
 1. **Explicit Transaction Boundary:** Calls `adapter.begin()` before each execution attempt.
 2. **Whole Callable Execution:** Calls `await operation(*args, **kwargs)` from the very first line of code on every attempt.
 3. **Clean Commit:** If the callable returns without error, calls `adapter.commit()`.
-4. **Immediate Rollback on Any Exception:** If an exception occurs during either operation execution or the `commit()` call, `adapter.rollback()` is executed immediately. Rollback errors never mask the primary operational failure.
+4. **Immediate Rollback on Any Exception:** If an exception occurs during operation execution or commit, `adapter.rollback()` is executed immediately. If `commit()` raises, the error is immediately surfaced to the caller and NEVER retried due to ambiguous commit outcome. Rollback errors never mask the primary operational failure.
 5. **Immediate Cancellation Propagation:** If an `asyncio.CancelledError`, `KeyboardInterrupt`, or `SystemExit` occurs, the transaction is rolled back and the signal is re-raised immediately without retrying.
 6. **SQLSTATE Classification:** The exception is inspected and classified against standard PostgreSQL error codes.
 7. **Backoff Pacing strictly AFTER Rollback:** Delay occurs strictly *after* the failed transaction has been rolled back in PostgreSQL, freeing held locks before sleeping.
@@ -212,7 +212,8 @@ flowchart TD
     CommitSuccess -- Yes --> Done([Return Result])
     
     Success -- No --> Rollback[adapter.rollback]
-    CommitSuccess -- No --> Rollback
+    CommitSuccess -- No --> RollbackCommit[adapter.rollback]
+    RollbackCommit --> FailCommit[Record Metric & Re-raise Commit Error]
     
     Rollback --> CancelCheck{Cancelled / Exit?}
     CancelCheck -- Yes --> ReRaiseCancelled[Re-raise Immediately]
@@ -404,9 +405,9 @@ PGShield provides dedicated, tested adapters for the two primary asynchronous da
 
 The `SQLAlchemySessionAdapter` bridges an active `sqlalchemy.ext.asyncio.AsyncSession` to PGShield's `TransactionAdapter` protocol.
 
-* `begin()`: Calls `await session.begin()` if not already inside a transaction block (`session.in_transaction()`).
+* `begin()`: Calls `await session.begin()`. If the session is already in an active transaction (`session.in_transaction()`), raises `RuntimeError`.
 * `commit()`: Calls `await session.commit()`.
-* `rollback()`: Calls `await session.rollback()` and resets the session's internal state.
+* `rollback()`: Calls `await session.rollback()`. PGShield does not call `expunge_all()`; pending objects in the caller's session are left as-is after rollback.
 
 #### Helper: `run_sqlalchemy_transaction`
 
@@ -443,9 +444,19 @@ async def debit_account(session: AsyncSession, account_id: int, amount: float):
 
 The `AsyncpgConnectionAdapter` integrates directly with raw `asyncpg.Connection` instances.
 
-* `begin()`: Creates and starts an `asyncpg.transaction.Transaction` (`conn.transaction()`).
+* `begin()`: Creates and starts an `asyncpg.transaction.Transaction` (`conn.transaction()`). If the connection is already in an active transaction (`conn.is_in_transaction()`), raises `RuntimeError`.
 * `commit()`: Commits the active transaction boundary.
 * `rollback()`: Rolls back the active transaction boundary.
+
+### Session and connection ownership (v0.1)
+
+* **SQLAlchemy:** PGShield owns the transaction it starts. If your `AsyncSession` is already in a transaction, PGShield raises `RuntimeError`. Wrap your own boundary around a fresh session.
+* **asyncpg:** PGShield owns the transaction it starts on the connection you pass. If the connection is already in a transaction, PGShield raises `RuntimeError`. The correct pool pattern is:
+  ```python
+  async with pool.acquire() as conn:
+      await run_asyncpg_transaction(conn, operation)
+  ```
+  A pool-aware convenience helper is planned for v0.2.
 
 #### Helper: `run_asyncpg_transaction`
 
@@ -519,9 +530,27 @@ class QueryExecutor(Protocol):
         ...
 ```
 
-#### Important Architectural Note: Concrete Adapters
-> [!NOTE]
-> PGShield's core does not provide pre-packaged concrete `QueryExecutor` classes for SQLAlchemy or asyncpg. This is an intentional architectural boundary: diagnostic queries should not be run across connections that may be in invalid transaction states. Implementing the protocol takes only 4 lines of code.
+#### Concrete `QueryExecutor` Adapters
+
+PGShield provides pre-packaged concrete `QueryExecutor` adapters for both asyncpg and SQLAlchemy:
+
+* **`AsyncpgQueryExecutor`** (`pgshield.integrations.asyncpg` or `pgshield`):
+  Wraps an `asyncpg.Connection` and returns plain Python dictionaries:
+  ```python
+  from pgshield import AsyncpgQueryExecutor
+
+  executor = AsyncpgQueryExecutor(conn)
+  rows = await executor.execute_query("SELECT 1 AS num")
+  ```
+
+* **`SQLAlchemyQueryExecutor`** (`pgshield.integrations.sqlalchemy` or `pgshield`):
+  Wraps a SQLAlchemy `AsyncSession` and returns row mappings:
+  ```python
+  from pgshield import SQLAlchemyQueryExecutor
+
+  executor = SQLAlchemyQueryExecutor(session)
+  rows = await executor.execute_query("SELECT 1 AS num")
+  ```
 
 ### Dedicated Diagnostic Connections
 
@@ -529,20 +558,11 @@ The recommended production pattern is to provide a dedicated connection (or smal
 
 ```python
 import asyncpg
-from pgshield.postgres import DiagnosticCollector, DiagnosticMode
+from pgshield import AsyncpgQueryExecutor, DiagnosticCollector, DiagnosticMode
 
-class AsyncpgDiagnosticExecutor:
-    def __init__(self, pool: asyncpg.Pool):
-        self._pool = pool
-
-    async def execute_query(self, sql: str, params=None):
-        async with self._pool.acquire() as conn:
-            records = await conn.fetch(sql, *(params or []))
-            return [dict(r) for r in records]
-
-# Configure collector with dedicated diagnostic pool
-diag_pool = await asyncpg.create_pool("postgresql://...")
-executor = AsyncpgDiagnosticExecutor(diag_pool)
+# Configure collector with dedicated diagnostic connection or pool
+diag_conn = await asyncpg.connect("postgresql://...")
+executor = AsyncpgQueryExecutor(diag_conn)
 
 diagnostics = DiagnosticCollector(
     mode=DiagnosticMode.ON_FAILURE,
@@ -587,9 +607,23 @@ To prevent sensitive user data or credentials from leaking into diagnostic outpu
 
 ---
 
-## Lock Contention Analysis (`pg_locks`)
+## Lock Contention Analysis (`pg_locks` & `pg_blocking_pids`)
 
 The `postgres/locks.py` module parses PostgreSQL's active lock table, joins relation and schema names from `pg_class` and `pg_namespace`, and analyzes lock contention.
+
+### Two Diagnostic Paths for Lock Conflicts
+
+PGShield provides two complementary diagnostic channels for analyzing lock contention:
+
+1. **Inferred (default, works everywhere):**
+   `detect_blocking_chains(locks)` pairs ungranted lock requests (`granted=False`) against granted locks (`granted=True`) sharing the identical resource key (`lock_type, relation_name, schema_name, page, tuple, transaction_id`). Crucially, relation lock pairs are filtered through PostgreSQL's official 8-mode relation lock compatibility matrix (`_RELATION_LOCK_COMPATIBILITY`, Table 13.2 in PostgreSQL documentation), eliminating false positives between compatible concurrent locks (such as concurrent `AccessShareLock` reads or concurrent `RowExclusiveLock` writes on separate rows). The resulting `BlockingRelationship.authoritative` attribute is set to `False`.
+
+2. **Authoritative:**
+   `fetch_locks_with_authoritative(executor)` and `fetch_blocking_pids(executor, pid=...)` query PostgreSQL's built-in `pg_blocking_pids(pid)` function. This queries the server's authoritative kernel lock wait queues, returning `AuthoritativeBlocking(blocked_pid=..., blocking_pids=[...])` structures indicating precisely which backend PIDs are holding back a waiting transaction.
+
+### Diagnostic Privileges
+
+Reading `pg_locks` and `pg_blocking_pids` requires no privileges beyond the ability to see your own backend; reading all backends requires `pg_monitor` or superuser. PGShield's tests exercise the self-visible path (or the superuser path when running in compose).
 
 ### `LockInfo` Dataclass
 
@@ -619,7 +653,17 @@ blocking_chains = detect_blocking_chains(locks)
 for block in blocking_chains:
     print(f"Process {block.blocked_pid} is BLOCKED by Process {block.blocking_pid}")
     print(f"Waiting for {block.waiting_mode}; Holder has {block.holding_mode}")
-    print(f"Resource: {block.resource_description}")
+    print(f"Resource: {block.resource_description} (authoritative={block.authoritative})")
+```
+
+### Authoritative Blocking Inspection (`fetch_locks_with_authoritative`)
+
+```python
+from pgshield.postgres.locks import fetch_locks_with_authoritative
+
+locks, authoritative_blocking = await fetch_locks_with_authoritative(executor)
+for auth in authoritative_blocking:
+    print(f"Blocked PID {auth.blocked_pid} is waiting for PIDs: {auth.blocking_pids}")
 ```
 
 ### Crucial Limitation: SSI (`40001`) vs. Heavyweight Locks (`pg_locks`)
@@ -627,9 +671,11 @@ for block in blocking_chains:
 > [!WARNING]
 > **Do not expect `pg_locks` to explain every `40001` serialization failure.**
 >
+> pg_locks cannot fully explain SSI serialization failures (SQLSTATE 40001); SIREAD locks are tracked in-memory and may not appear as ordinary lock waits.
+>
 > PostgreSQL's Serializable Snapshot Isolation (SSI) engine detects read/write anti-dependencies using **SIREAD predicate locks**. Predicate locks are in-memory tracking flags that do not block execution; transactions proceed normally until commit time, where PostgreSQL aborts any transaction participating in a cycle.
 >
-> Because predicate locks are not blocking locks, `pg_locks` will generally show **no waiting locks** during a pure SSI serialization failure. PGShield explicitly identifies this distinction in its diagnostic explanations and warnings.
+> Because predicate locks are not blocking locks, `pg_locks` will generally show **no waiting locks** during a pure SSI serialization failure. PGShield explicitly identifies this distinction in its diagnostic explanations ("No blocking relationship was found in pg_locks; this is expected for Serializable Snapshot Isolation, where serialization conflicts are tracked via SIREAD predicate locks and may not appear as ordinary lock waits.") and warnings.
 
 ---
 
@@ -1123,6 +1169,9 @@ Long-running transactions hold locks longer and broaden their read/write sets, e
 ### 4. Bounded Retries
 Never configure `max_attempts` to infinity. Unbounded retries in an overloaded database exacerbate server load and lock queues. Choose a realistic limit (3 to 5 attempts) and allow unresolvable conflicts to propagate to the application error handler.
 
+### 5. Ambiguous Commit Outcomes
+PGShield does NOT retry transactions whose `commit()` call raised an exception. When a network disconnection, socket timeout, or driver error occurs during commit, the server may have successfully committed the transaction before the connection was severed. Retrying such a transaction could execute non-idempotent operations multiple times and cause data corruption. Callers must treat commit failures as ambiguous and design application-level idempotency accordingly.
+
 ---
 
 ## Performance & Runtime Overhead
@@ -1200,6 +1249,20 @@ Run the test suite using Poetry and pytest:
 ```bash
 poetry run pytest
 ```
+
+### Running integration tests against a real PostgreSQL
+
+```bash
+docker compose up -d --wait
+export PGSHIELD_TEST_DSN="postgresql://postgres:postgres@localhost:5432/postgres"
+pytest -m integration
+```
+
+The healthcheck in `docker compose` uses `pg_isready` with `--wait` so tests don't race a half-started DB.
+
+#### Continuous integration
+
+CI runs lint (advisory in Phase 5), unit tests without database dependencies, integration tests against a `services: postgres` container, and a compose verification job that runs `docker compose up -d --wait`. If the compose verification job is red, the compose file is broken; if the `services:` job is red, the code is broken. This separation ensures container orchestration defects are diagnosed independently from database driver logic.
 
 ### Verified Test Results
 
@@ -1285,6 +1348,11 @@ import pgshield
 | `AsyncpgTransactionRunner`| Integration | Specialized `TransactionRunner` for asyncpg. |
 | `run_asyncpg_transaction`| Integration | Helper executing a callable with retries on an `asyncpg.Connection`. |
 | `extract_asyncpg_sqlstate`| Integration | Extracts SQLSTATE from `asyncpg.PostgresError`. |
+| `AsyncpgQueryExecutor`| Integration | Concrete `QueryExecutor` adapter for `asyncpg.Connection`. |
+| `SQLAlchemyQueryExecutor`| Integration | Concrete `QueryExecutor` adapter for SQLAlchemy `AsyncSession`. |
+| `AuthoritativeBlocking`| PostgreSQL | Dataclass representing authoritative blocking PIDs from `pg_blocking_pids`. |
+| `fetch_blocking_pids` | PostgreSQL | Direct inspection of `pg_blocking_pids` for a given backend PID. |
+| `fetch_locks_with_authoritative` | PostgreSQL | Queries `pg_locks` and authoritative blocking PIDs simultaneously. |
 
 ---
 
@@ -1294,7 +1362,7 @@ To maintain engineering transparency, note the following architectural realities
 
 1. **SSI Conflicts Do Not Appear in `pg_locks`:** PostgreSQL's SSI (`40001`) conflicts are tracked via SIREAD predicate locks in private kernel memory structures. They do not block queries and will generally not show up as waiting locks in `pg_locks`.
 2. **Observational Diagnostics:** Diagnostic queries against `pg_stat_activity` and `pg_locks` represent a momentary snapshot after the transaction failed. If conflicting concurrent transactions have already committed or disconnected, their locks will no longer appear in the diagnostic output.
-3. **No Built-in QueryExecutor for Drivers:** Applications must provide a lightweight `QueryExecutor` callable (or separate connection pool) to use `DiagnosticCollector`. PGShield intentionally avoids running diagnostic SQL on unverified application connections.
+3. **Separate Connection for Diagnostics:** Applications should provide a dedicated connection or pool to `DiagnosticCollector` via concrete adapters (`AsyncpgQueryExecutor`, `SQLAlchemyQueryExecutor`). PGShield intentionally avoids running diagnostic SQL on unverified application connections that may be in aborted transaction states.
 4. **Idempotency Requirement:** Callables passed to `TransactionRunner` must be safe to execute multiple times. If your function contains uncommitted local state mutations or external API calls, those actions will repeat on retry.
 5. **No Synchronous Driver Support:** PGShield is written exclusively for asynchronous Python (`asyncio`). Synchronous DBAPI drivers (`psycopg2` sync, synchronous SQLAlchemy sessions) are not supported.
 

@@ -41,11 +41,15 @@ from pgshield.postgres.errors import (
 )
 from pgshield.postgres.locks import (
     LOCKS_QUERY_BASE,
+    AuthoritativeBlocking,
     BlockingRelationship,
     LockInfo,
     build_locks_query,
     detect_blocking_chains,
+    fetch_blocking_pids,
     fetch_locks,
+    fetch_locks_with_authoritative,
+    lock_modes_conflict,
     parse_lock_rows,
 )
 
@@ -76,10 +80,14 @@ __all__ = [
     # locks
     "LockInfo",
     "BlockingRelationship",
+    "AuthoritativeBlocking",
     "parse_lock_rows",
     "detect_blocking_chains",
     "build_locks_query",
     "fetch_locks",
+    "fetch_blocking_pids",
+    "fetch_locks_with_authoritative",
+    "lock_modes_conflict",
     "LOCKS_QUERY_BASE",
     # diagnostics
     "DiagnosticReport",

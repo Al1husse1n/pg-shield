@@ -108,6 +108,12 @@ def generate_explanation(
             "(SIREAD locks) and do not manifest as standard blocking locks in pg_locks. The current "
             "lock table may not identify the specific overlapping query."
         )
+        if len(blocking_chains) == 0:
+            explanation += (
+                " No blocking relationship was found in pg_locks; this is expected for Serializable "
+                "Snapshot Isolation, where serialization conflicts are tracked via SIREAD predicate "
+                "locks and may not appear as ordinary lock waits."
+            )
         warnings.append(
             "pg_locks cannot fully explain SSI serialization failures; do not assume missing blocking "
             "locks indicates absence of conflict."

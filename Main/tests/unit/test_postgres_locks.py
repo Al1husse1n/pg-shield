@@ -2,11 +2,15 @@
 
 import pytest
 from pgshield.postgres.locks import (
+    AuthoritativeBlocking,
     BlockingRelationship,
     LockInfo,
     build_locks_query,
     detect_blocking_chains,
+    fetch_blocking_pids,
     fetch_locks,
+    fetch_locks_with_authoritative,
+    lock_modes_conflict,
     parse_lock_rows,
 )
 
@@ -14,12 +18,15 @@ from pgshield.postgres.locks import (
 class MockQueryExecutor:
     """Mock QueryExecutor."""
 
-    def __init__(self, rows):
-        self.rows = rows
+    def __init__(self, rows=None, blocking_pids=None):
+        self.rows = rows or []
+        self.blocking_pids = blocking_pids or []
         self.executed_sqls = []
 
     async def execute_query(self, sql: str, params=None):
         self.executed_sqls.append(sql)
+        if "pg_blocking_pids" in sql:
+            return [{"blocking_pids": self.blocking_pids}]
         return self.rows
 
 
@@ -188,3 +195,71 @@ class TestPostgresLocks:
         pid_pos = q.index("l.pid IN (10, 20)")
         order_pos = q.index("ORDER BY")
         assert pid_pos < order_pos
+
+    def test_lock_compatibility_access_share_and_row_exclusive_no_conflict(self):
+        """a. AccessShareLock holder + RowExclusiveLock waiter -> NO relationship."""
+        locks = [
+            LockInfo(pid=1, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
+            LockInfo(pid=2, lock_type="relation", mode="RowExclusiveLock", granted=False, relation_name="t1"),
+        ]
+        blocking = detect_blocking_chains(locks)
+        assert len(blocking) == 0
+
+    def test_lock_compatibility_row_exclusive_and_access_exclusive_conflict(self):
+        """b. RowExclusiveLock holder + AccessExclusiveLock waiter -> relationship."""
+        locks = [
+            LockInfo(pid=1, lock_type="relation", mode="RowExclusiveLock", granted=True, relation_name="t1"),
+            LockInfo(pid=2, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+        ]
+        blocking = detect_blocking_chains(locks)
+        assert len(blocking) == 1
+        assert blocking[0].blocking_pid == 1
+        assert blocking[0].blocked_pid == 2
+        assert blocking[0].authoritative is False
+
+    def test_lock_compatibility_multiple_access_share_and_access_exclusive(self):
+        """c. Two AccessShareLock holders + one AccessExclusiveLock waiter -> two relationships."""
+        locks = [
+            LockInfo(pid=1, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
+            LockInfo(pid=2, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
+            LockInfo(pid=3, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+        ]
+        blocking = detect_blocking_chains(locks)
+        assert len(blocking) == 2
+        assert {b.blocking_pid for b in blocking} == {1, 2}
+        assert all(b.blocked_pid == 3 for b in blocking)
+
+    def test_lock_compatibility_unknown_mode_failsafe_conflict(self):
+        """d. Unknown mode (e.g. 'SomeFutureLock') + AccessExclusiveLock waiter -> relationship (fail-safe)."""
+        locks = [
+            LockInfo(pid=1, lock_type="relation", mode="SomeFutureLock", granted=True, relation_name="t1"),
+            LockInfo(pid=2, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+        ]
+        blocking = detect_blocking_chains(locks)
+        assert len(blocking) == 1
+        assert blocking[0].blocking_pid == 1
+        assert blocking[0].blocked_pid == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_locks_with_authoritative_blocking(self):
+        """fetch_locks_with_authoritative returns locks and AuthoritativeBlocking records from pg_blocking_pids."""
+        mock_lock_rows = [
+            {
+                "pid": 102,
+                "lock_type": "relation",
+                "mode": "AccessExclusiveLock",
+                "granted": False,
+                "relation_name": "orders",
+            }
+        ]
+        executor = MockQueryExecutor(rows=mock_lock_rows, blocking_pids=[42, 43])
+
+        pids = await fetch_blocking_pids(executor, pid=102)
+        assert pids == [42, 43]
+
+        locks, authoritative = await fetch_locks_with_authoritative(executor, filter_pids=[102])
+        assert len(locks) == 1
+        assert locks[0].pid == 102
+        assert len(authoritative) == 1
+        assert authoritative[0].blocked_pid == 102
+        assert authoritative[0].blocking_pids == (42, 43)

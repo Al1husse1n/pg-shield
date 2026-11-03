@@ -11,7 +11,9 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    Mapping,
     Optional,
+    Sequence,
     TypeVar,
 )
 
@@ -50,20 +52,28 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
         return self._connection
 
     async def begin(self) -> None:
-        """Create and start a new transaction boundary on the connection."""
+        """Create and start a new transaction boundary on the connection.
+
+        Refuses connections that are already inside an active transaction.
+        """
+        if self._connection.is_in_transaction():
+            raise RuntimeError(
+                "PGShield cannot begin a transaction on an asyncpg connection that is already in a transaction. "
+                "Acquire a fresh connection from your pool for each retryable operation, or wrap your own boundary."
+            )
         if self._current_transaction is not None:
             await self.rollback()
         self._current_transaction = self._connection.transaction()
         await self._current_transaction.start()
 
     async def commit(self) -> None:
-        """Commit the current transaction boundary."""
+        """Commit the current transaction boundary (PGShield only owns the transaction it started)."""
         if self._current_transaction is not None:
             await self._current_transaction.commit()
             self._current_transaction = None
 
     async def rollback(self) -> None:
-        """Roll back the current transaction boundary."""
+        """Roll back the current transaction boundary (PGShield only owns the transaction it started)."""
         if self._current_transaction is not None:
             try:
                 await self._current_transaction.rollback()
@@ -71,6 +81,24 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
                 pass
             finally:
                 self._current_transaction = None
+
+
+class AsyncpgQueryExecutor:
+    """Concrete QueryExecutor adapter for asyncpg connections.
+
+    Executes read-only diagnostic queries using an active asyncpg.Connection
+    and returns results as a sequence of plain Python dictionaries.
+    """
+
+    def __init__(self, connection: asyncpg.Connection) -> None:
+        self._connection = connection
+
+    async def execute_query(
+        self, sql: str, params: Optional[Sequence[Any]] = None
+    ) -> Sequence[Mapping[str, Any]]:
+        """Execute a read query and return rows as a list of plain dicts."""
+        records = await self._connection.fetch(sql, *(params or []))
+        return [dict(record) for record in records]
 
 
 def extract_asyncpg_sqlstate(error: BaseException) -> Optional[str]:

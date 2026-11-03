@@ -12,7 +12,9 @@ from pgshield.instrumentation import (
 )
 from pgshield.integrations import (
     AsyncpgConnectionAdapter,
+    AsyncpgQueryExecutor,
     AsyncpgTransactionRunner,
+    SQLAlchemyQueryExecutor,
     SQLAlchemySessionAdapter,
     SQLAlchemyTransactionRunner,
     extract_asyncpg_sqlstate,
@@ -21,6 +23,7 @@ from pgshield.integrations import (
     run_sqlalchemy_transaction,
 )
 from pgshield.postgres import (
+    AuthoritativeBlocking,
     DiagnosticCollector,
     DiagnosticMode,
     DiagnosticReport,
@@ -29,6 +32,9 @@ from pgshield.postgres import (
     PostgresErrorDetails,
     SessionActivity,
     build_diagnostic_report,
+    fetch_blocking_pids,
+    fetch_locks,
+    fetch_locks_with_authoritative,
     parse_postgres_error,
 )
 from pgshield.retry import (
@@ -79,6 +85,10 @@ __all__ = [
     "parse_postgres_error",
     "SessionActivity",
     "LockInfo",
+    "AuthoritativeBlocking",
+    "fetch_locks",
+    "fetch_blocking_pids",
+    "fetch_locks_with_authoritative",
     "DiagnosticReport",
     "DiagnosticMode",
     "DiagnosticCollector",
@@ -94,10 +104,12 @@ __all__ = [
     "MetricsSnapshot",
     # Integrations
     "SQLAlchemySessionAdapter",
+    "SQLAlchemyQueryExecutor",
     "SQLAlchemyTransactionRunner",
     "run_sqlalchemy_transaction",
     "extract_sqlalchemy_sqlstate",
     "AsyncpgConnectionAdapter",
+    "AsyncpgQueryExecutor",
     "AsyncpgTransactionRunner",
     "run_asyncpg_transaction",
     "extract_asyncpg_sqlstate",

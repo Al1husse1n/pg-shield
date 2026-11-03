@@ -7,20 +7,24 @@ from pgshield.postgres.diagnostics import (
     DiagnosticMode,
     DiagnosticReport,
     build_diagnostic_report,
+    generate_explanation,
 )
 from pgshield.postgres.errors import (
     SQLSTATE_DEADLOCK_DETECTED,
     SQLSTATE_SERIALIZATION_FAILURE,
     SQLSTATE_UNIQUE_VIOLATION,
     PostgresErrorCategory,
+    PostgresErrorDetails,
 )
-from pgshield.postgres.locks import LockInfo
+from pgshield.postgres.locks import BlockingRelationship, LockInfo
 
 
 class DummyDriverException(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
+DummyDriverException.__module__ = "asyncpg.exceptions"
 
 
 class MockQueryExecutor:
@@ -126,3 +130,31 @@ class TestPostgresDiagnostics:
         assert report.active_sessions[0].pid == 20
         assert len(report.locks) == 1
         assert report.locks[0].pid == 20
+
+    def test_ssi_explanation_honesty_sentence(self):
+        details = PostgresErrorDetails(
+            sqlstate="40001",
+            category=PostgresErrorCategory.SERIALIZATION_FAILURE,
+            message="could not serialize access due to read/write dependencies among transactions",
+        )
+        expected_sentence = (
+            "No blocking relationship was found in pg_locks; this is expected for Serializable "
+            "Snapshot Isolation, where serialization conflicts are tracked via SIREAD predicate "
+            "locks and may not appear as ordinary lock waits."
+        )
+
+        # Case 1: empty blocking_chains -> sentence IS in explanation
+        explanation_empty, _, _ = generate_explanation(details, [], [])
+        assert expected_sentence in explanation_empty
+
+        # Case 2: non-empty blocking_chains -> sentence is NOT in explanation
+        dummy_rel = BlockingRelationship(
+            blocked_pid=200,
+            blocking_pid=100,
+            lock_type="relation",
+            waiting_mode="ShareLock",
+            holding_mode="ExclusiveLock",
+            resource_description="relation:public.tbl",
+        )
+        explanation_non_empty, _, _ = generate_explanation(details, [dummy_rel], [])
+        assert expected_sentence not in explanation_non_empty

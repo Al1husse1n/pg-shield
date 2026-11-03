@@ -7,14 +7,18 @@ and latency distributions without requiring external monitoring dependencies.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 import threading
-from typing import Dict, List, Optional, Protocol, runtime_checkable
+from typing import Deque, Dict, Final, List, Optional, Protocol, runtime_checkable
 
 from pgshield.postgres.errors import (
     SQLSTATE_DEADLOCK_DETECTED,
     SQLSTATE_SERIALIZATION_FAILURE,
 )
+
+# Default maximum number of latency and delay samples retained in memory to bound memory usage
+DEFAULT_MAX_SAMPLES: Final[int] = 10_000
 
 
 @runtime_checkable
@@ -130,16 +134,17 @@ class InMemoryMetricsCollector:
     SQLSTATE concurrency errors (40001, 40P01), and timing statistics.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_samples: int = DEFAULT_MAX_SAMPLES) -> None:
         self._lock = threading.Lock()
+        self._max_samples = max_samples
         self._transactions_total: int = 0
         self._transactions_committed_total: int = 0
         self._transactions_failed_total: int = 0
         self._transactions_retried_total: int = 0
         self._serialization_failures_total: int = 0
         self._deadlocks_total: int = 0
-        self._durations: List[float] = []
-        self._retry_delays: List[float] = []
+        self._durations: Deque[float] = deque(maxlen=max_samples)
+        self._retry_delays: Deque[float] = deque(maxlen=max_samples)
 
     @property
     def transactions_total(self) -> int:

@@ -15,6 +15,8 @@ class MockDatabaseError(Exception):
         super().__init__(message)
         self.sqlstate = sqlstate
 
+MockDatabaseError.__module__ = "asyncpg.exceptions"
+
 
 class MockSleepRecorder:
     def __init__(self):

@@ -6,6 +6,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pgshield.integrations.sqlalchemy import (
+    SQLAlchemyQueryExecutor,
     SQLAlchemySessionAdapter,
     SQLAlchemyTransactionRunner,
     extract_sqlalchemy_sqlstate,
@@ -18,6 +19,8 @@ class MockDriverError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
+MockDriverError.__module__ = "asyncpg.exceptions"
 
 
 class MockSleepRecorder:
@@ -51,6 +54,50 @@ class TestSQLAlchemyIntegration:
         mock_session.commit.assert_awaited_once()
 
         # 3. Rollback
+        await adapter.rollback()
+        mock_session.rollback.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_session_adapter_refuses_already_in_transaction(self):
+        """begin() on a session already in a transaction raises RuntimeError."""
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_session.in_transaction.return_value = True
+        mock_session.begin = AsyncMock()
+
+        adapter = SQLAlchemySessionAdapter(mock_session)
+
+        expected_msg = (
+            "PGShield cannot begin a transaction on a session that is already in a transaction. "
+            "Pass a session with no active transaction, or wrap your own boundary around a fresh session."
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            await adapter.begin()
+
+        assert str(exc_info.value) == expected_msg
+        mock_session.begin.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_session_adapter_begin_clean_session(self):
+        """begin() on a clean session calls session.begin()."""
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_session.in_transaction.return_value = False
+        mock_session.begin = AsyncMock()
+
+        adapter = SQLAlchemySessionAdapter(mock_session)
+        await adapter.begin()
+        mock_session.begin.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_session_adapter_commit_and_rollback(self):
+        """commit() calls session.commit(); rollback() calls session.rollback()."""
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+
+        adapter = SQLAlchemySessionAdapter(mock_session)
+        await adapter.commit()
+        mock_session.commit.assert_awaited_once()
+
         await adapter.rollback()
         mock_session.rollback.assert_awaited_once()
 
@@ -140,3 +187,23 @@ class TestSQLAlchemyIntegration:
         assert len(sleeper.delays) == 0
         assert mock_session.rollback.await_count == 1
         assert mock_session.commit.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_sqlalchemy_query_executor_protocol_and_execution(self):
+        """SQLAlchemyQueryExecutor satisfies QueryExecutor protocol and returns dicts."""
+        from pgshield.postgres.activity import QueryExecutor
+
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_result = MagicMock()
+        mock_mapping = MagicMock()
+        mock_mapping.all.return_value = [{"col1": "val1", "col2": 42}]
+        mock_result.mappings.return_value = mock_mapping
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        executor = SQLAlchemyQueryExecutor(mock_session)
+        assert isinstance(executor, QueryExecutor)
+
+        rows = await executor.execute_query("SELECT col1, col2 FROM tbl WHERE col2 = :val", {"val": 42})
+        assert rows == [{"col1": "val1", "col2": 42}]
+        assert isinstance(rows[0], dict)
+        mock_session.execute.assert_awaited_once()

@@ -77,3 +77,23 @@ class TestMetricsCollector:
         assert metrics.transactions_total == 0
         assert metrics.transactions_committed_total == 0
         assert metrics.snapshot().avg_duration_seconds == 0.0
+
+    def test_bounded_memory_under_high_volume(self):
+        """Verify that recording 100,000 transactions maintains bounded internal sample collections."""
+        metrics = InMemoryMetricsCollector(max_samples=10_000)
+
+        for i in range(100_000):
+            metrics.record_transaction_committed(0.01, 1, f"tx-{i}")
+            if i % 10 == 0:
+                metrics.record_transaction_retry(1, 0.005)
+
+        assert metrics.transactions_committed_total == 100_000
+        assert metrics.transactions_retried_total == 10_000
+
+        # Internal collections must be strictly bounded to max_samples
+        assert len(metrics._durations) == 10_000
+        assert len(metrics._retry_delays) == 10_000
+
+        snap = metrics.snapshot()
+        assert snap.transactions_committed_total == 100_000
+        assert snap.avg_duration_seconds == pytest.approx(0.01)

@@ -25,6 +25,8 @@ class MockDatabaseError(Exception):
         super().__init__(message)
         self.sqlstate = sqlstate
 
+MockDatabaseError.__module__ = "asyncpg.exceptions"
+
 
 class MockTransactionAdapter:
     """Mock database transaction adapter tracking lifecycle calls."""
@@ -221,8 +223,8 @@ class TestTransactionRunner:
         assert attempts_seen == [1, 2]
 
     @pytest.mark.asyncio
-    async def test_7_commit_failure_handled_correctly_by_classifier(self):
-        """7. Retryable error occurring at COMMIT time triggers rollback and whole-op retry."""
+    async def test_7_commit_failure_never_retried_due_to_ambiguous_outcome(self):
+        """7. Commit failure is never retried even with retryable SQLSTATE due to ambiguous outcome."""
         # Adapter will raise 40001 on the first commit attempt
         adapter = MockTransactionAdapter(
             commit_error=MockDatabaseError("commit serialization failure", sqlstate="40001")
@@ -237,14 +239,14 @@ class TestTransactionRunner:
             op_executions += 1
             return {"status": "ok"}
 
-        result = await runner.run(op)
+        with pytest.raises(MockDatabaseError, match="commit serialization failure"):
+            await runner.run(op)
 
-        assert result == {"status": "ok"}
-        assert op_executions == 2
-        assert adapter.begins == 2
-        assert adapter.commits == 2
+        assert op_executions == 1
+        assert adapter.begins == 1
+        assert adapter.commits == 1
         assert adapter.rollbacks == 1  # Rolled back after failed commit attempt 1
-        assert len(sleeper.delays) == 1
+        assert len(sleeper.delays) == 0  # No backoff delay or retry
 
     @pytest.mark.asyncio
     async def test_8_returned_value_and_metadata_preserved(self):
@@ -319,3 +321,31 @@ class TestTransactionRunner:
         assert call_count == 1
         assert adapter.rollbacks == 1
         assert len(sleeper.delays) == 0
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_commit_failure_never_retried_with_fake_adapter(self, fake_adapter):
+        """Ambiguous commit failure raises original error and never retries user callable."""
+        fake_adapter.fail_on_commit = True
+        fake_adapter.error_factory = lambda stage: MockDatabaseError(
+            f"simulated {stage} network drop", sqlstate="40001"
+        )
+        sleeper = MockSleepRecorder()
+        policy = RetryPolicy(max_attempts=3, base_delay=0.05, jitter=False)
+        runner = TransactionRunner(policy=policy, adapter=fake_adapter, sleep_func=sleeper)
+
+        op_calls = 0
+
+        async def business_op():
+            nonlocal op_calls
+            op_calls += 1
+            return "transfer_complete"
+
+        with pytest.raises(MockDatabaseError, match="simulated commit network drop") as exc_info:
+            await runner.run(business_op)
+
+        assert exc_info.value.sqlstate == "40001"
+        assert op_calls == 1  # User callable must NEVER be re-executed on commit failure
+        assert fake_adapter.begins == 1
+        assert fake_adapter.commits == 1
+        assert fake_adapter.rollbacks == 1  # Clean rollback attempted after commit failure
+        assert len(sleeper.delays) == 0  # No backoff delay

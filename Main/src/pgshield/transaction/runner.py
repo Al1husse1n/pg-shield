@@ -253,6 +253,7 @@ class TransactionRunner:
             for attempt_idx in range(self._policy.max_attempts):
                 ctx.attempt = attempt_idx + 1
                 attempt_start = time.monotonic()
+                in_commit = False
 
                 self._logger.log_started(
                     attempt=ctx.attempt,
@@ -270,7 +271,10 @@ class TransactionRunner:
 
                     # 3. Commit transaction upon successful operation return
                     if active_adapter is not None:
+                        in_commit = True
+                        # Commit failures are never retried because the outcome is ambiguous (server may have committed).
                         await active_adapter.commit()
+                        in_commit = False
 
                     attempt_duration = time.monotonic() - attempt_start
                     total_duration = time.monotonic() - overall_start_time
@@ -368,8 +372,8 @@ class TransactionRunner:
                         except Exception:
                             pass
 
-                    # 4c. Non-retryable error OR reached max attempts: fail immediately
-                    if not classification.retryable or is_last_attempt:
+                    # 4c. Non-retryable error, commit failure, OR reached max attempts: fail immediately
+                    if in_commit or not classification.retryable or is_last_attempt:
                         ctx.history.append(
                             AttemptRecord(
                                 attempt_number=ctx.attempt,

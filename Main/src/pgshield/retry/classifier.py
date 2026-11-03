@@ -54,6 +54,12 @@ class ClassificationResult:
 # Type alias for custom SQLSTATE extractor functions
 SQLStateExtractor = Callable[[BaseException], Optional[str]]
 
+from pgshield._driver_evidence import (
+    _DRIVER_CLASS_ALLOWLIST,
+    _DRIVER_MODULE_KEYWORDS,
+    _has_postgres_driver_evidence,
+)
+
 
 def extract_sqlstate(
     error: BaseException, _visited: Optional[set[int]] = None
@@ -79,11 +85,12 @@ def extract_sqlstate(
         return None
     _visited.add(err_id)
 
-    # Check direct attributes on the exception
-    for attr in ("sqlstate", "pgcode", "code"):
-        val = getattr(error, attr, None)
-        if isinstance(val, str) and len(val) == 5:
-            return val.upper()
+    # Check direct attributes on the exception only if there is driver evidence
+    if _has_postgres_driver_evidence(error):
+        for attr in ("sqlstate", "pgcode", "code"):
+            val = getattr(error, attr, None)
+            if isinstance(val, str) and len(val) == 5:
+                return val.upper()
 
     # Check for wrapped/underlying driver error (e.g. SQLAlchemy DBAPIError.orig)
     orig = getattr(error, "orig", None)

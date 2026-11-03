@@ -44,6 +44,8 @@ class MockDriverException(Exception):
         if constraint_name is not None:
             self.constraint_name = constraint_name
 
+MockDriverException.__module__ = "asyncpg.exceptions"
+
 
 class MockWrapperException(Exception):
     """Mock ORM exception with .orig attribute."""
@@ -51,6 +53,8 @@ class MockWrapperException(Exception):
     def __init__(self, message: str, orig: Exception):
         super().__init__(message)
         self.orig = orig
+
+MockWrapperException.__module__ = "sqlalchemy.exc"
 
 
 class TestPostgresErrors:
@@ -139,3 +143,13 @@ class TestPostgresErrors:
         assert categorize_sqlstate("23503") == PostgresErrorCategory.INTEGRITY_VIOLATION
         assert categorize_sqlstate("42P01") == PostgresErrorCategory.SYNTAX_OR_ACCESS_ERROR
         assert categorize_sqlstate(None) == PostgresErrorCategory.UNKNOWN
+
+    def test_mock_driver_error_in_wrong_module_not_parsed_as_postgres(self):
+        """A class named MockDriverException or MockDriverError in the wrong module has no driver evidence."""
+        class MockDriverError(Exception):
+            code = "40001"
+        MockDriverError.__module__ = "myapp.errors"
+
+        details = parse_postgres_error(MockDriverError("x"))
+        assert details.sqlstate is None
+        assert details.category == PostgresErrorCategory.UNKNOWN
