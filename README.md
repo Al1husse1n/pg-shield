@@ -1409,6 +1409,15 @@ PGShield is engineered for a predictable developer experience and strict typing:
   python examples/asyncpg_transfer.py
   ```
 
+* **Packaging & Local Builds:** Standard PEP 517/621 builds can be generated and validated locally:
+  ```bash
+  cd Main
+  pip install build twine
+  python -m build
+  twine check dist/*
+  ```
+* **Release Pipeline:** Releases are published automatically to TestPyPI via GitHub Actions (`.github/workflows/publish.yml`) on version tags (`v*`) or manual `workflow_dispatch`.
+
 ---
 
 ## Design Philosophy
