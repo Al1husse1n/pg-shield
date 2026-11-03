@@ -15,9 +15,11 @@ from typing import (
     Optional,
     Sequence,
     TypeVar,
+    Union,
 )
 
 import asyncpg
+from asyncpg.transaction import Transaction
 
 from pgshield.retry.classifier import extract_sqlstate
 from pgshield.retry.policy import RetryPolicy
@@ -43,7 +45,7 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
             connection: An active asyncpg.Connection instance.
         """
         self._connection = connection
-        self._current_transaction: Optional[asyncpg.transaction.Transaction] = None
+        self._current_transaction: Optional[Transaction] = None
 
     @property
     def connection(self) -> asyncpg.Connection:
@@ -94,10 +96,14 @@ class AsyncpgQueryExecutor:
         self._connection = connection
 
     async def execute_query(
-        self, sql: str, params: Optional[Sequence[Any]] = None
+        self, sql: str, params: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None
     ) -> Sequence[Mapping[str, Any]]:
         """Execute a read query and return rows as a list of plain dicts."""
-        records = await self._connection.fetch(sql, *(params or []))
+        if isinstance(params, Mapping):
+            args: Sequence[Any] = tuple(params.values())
+        else:
+            args = params or []
+        records = await self._connection.fetch(sql, *args)
         return [dict(record) for record in records]
 
 
