@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import asyncpg
 import asyncpg.exceptions
 import pytest
+from asyncpg.transaction import Transaction
 
 from pgshield.integrations.asyncpg import (
     AsyncpgConnectionAdapter,
@@ -31,7 +32,7 @@ class TestAsyncpgIntegration:
     async def test_connection_adapter_lifecycle(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
         mock_conn.is_in_transaction.return_value = False
-        mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
+        mock_tx = MagicMock(spec=Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
         mock_tx.rollback = AsyncMock()
@@ -78,7 +79,7 @@ class TestAsyncpgIntegration:
         """begin() on a clean connection starts a transaction."""
         mock_conn = MagicMock(spec=asyncpg.Connection)
         mock_conn.is_in_transaction.return_value = False
-        mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
+        mock_tx = MagicMock(spec=Transaction)
         mock_tx.start = AsyncMock()
         mock_conn.transaction.return_value = mock_tx
 
@@ -102,7 +103,7 @@ class TestAsyncpgIntegration:
     async def test_run_asyncpg_transaction_retries_on_40001(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
         mock_conn.is_in_transaction.return_value = False
-        mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
+        mock_tx = MagicMock(spec=Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
         mock_tx.rollback = AsyncMock()
@@ -137,7 +138,7 @@ class TestAsyncpgIntegration:
     async def test_run_asyncpg_transaction_fails_immediately_on_23505(self):
         mock_conn = MagicMock(spec=asyncpg.Connection)
         mock_conn.is_in_transaction.return_value = False
-        mock_tx = MagicMock(spec=asyncpg.transaction.Transaction)
+        mock_tx = MagicMock(spec=Transaction)
         mock_tx.start = AsyncMock()
         mock_tx.commit = AsyncMock()
         mock_tx.rollback = AsyncMock()
