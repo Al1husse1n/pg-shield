@@ -61,7 +61,7 @@ class QueryExecutor(Protocol):
     """Protocol for executing read-only diagnostic queries against PostgreSQL."""
 
     async def execute_query(
-        self, sql: str, params: Optional[Sequence[Any]] = None
+        self, sql: str, params: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None
     ) -> Sequence[Mapping[str, Any]]:  # str key and any value
         """Execute a SQL query and return rows as dictionaries or mapping objects."""
         ...
