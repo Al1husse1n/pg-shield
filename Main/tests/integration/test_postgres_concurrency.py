@@ -47,6 +47,7 @@ async def test_real_postgres_asyncpg_successful_transaction(asyncpg_conn: asyncp
             "INSERT INTO test_pgshield_items (val) VALUES ($1) RETURNING id;",
             "hello_pgshield",
         )
+        assert row is not None
         return row["id"]
 
     item_id = await run_asyncpg_transaction(asyncpg_conn, insert_item)
@@ -407,6 +408,7 @@ async def test_pg_blocking_pids_matches_authoritative_channel(pg_dsn: str):
     observer = await asyncpg.connect(pg_dsn)
 
     task2 = None
+    tx1 = None
     try:
         conn1_pid = await conn1.fetchval("SELECT pg_backend_pid();")
         conn2_pid = await conn2.fetchval("SELECT pg_backend_pid();")
@@ -473,7 +475,8 @@ async def test_pg_blocking_pids_matches_authoritative_channel(pg_dsn: str):
         except Exception:
             pass
         try:
-            await tx1.rollback()
+            if tx1 is not None:
+                await tx1.rollback()
         except Exception:
             pass
         try:
