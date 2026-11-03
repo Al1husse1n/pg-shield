@@ -66,6 +66,24 @@ GitHub Actions runs five distinct jobs on every push and pull request:
 - **integration**: Runs integration tests (`pytest -q -m integration`) against a native GitHub Actions PostgreSQL 16 service container.
 - **compose**: Verifies `docker-compose.yml` startup, validates healthchecks, runs integration tests against the compose cluster, and tears down the stack.
 
+## Building the Package Locally
+
+To build distribution packages (source archive and wheel) locally:
+
+```bash
+cd Main
+pip install build twine
+python -m build
+twine check dist/*
+```
+
+This creates `dist/pgshield-<version>.tar.gz` (sdist) and `dist/pgshield-<version>-py3-none-any.whl` (wheel), and verifies metadata with `twine check`.
+
+## Publishing Releases
+
+PGShield releases are automated through GitHub Actions:
+- **TestPyPI**: Pushes with version tags (`v*`) or manual triggers via `workflow_dispatch` invoke `.github/workflows/publish.yml` to build the distribution and publish artifacts to [TestPyPI](https://test.pypi.org/project/pgshield/) via Trusted Publishing.
+
 ## Definition of Done for a PR
 
 Before submitting a Pull Request, verify:
