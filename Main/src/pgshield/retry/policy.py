@@ -7,7 +7,7 @@ including attempt limits, delay bounds, and backoff parameters.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet
+from typing import AbstractSet, FrozenSet, Union
 
 from pgshield.retry.classifier import DEFAULT_RETRYABLE_SQLSTATES
 
@@ -43,7 +43,7 @@ class RetryPolicy:
     max_delay: float = 2.0
     backoff_factor: float = 2.0
     jitter: bool = True
-    retryable_sqlstates: FrozenSet[str] = field(
+    retryable_sqlstates: Union[FrozenSet[str], AbstractSet[str]] = field(
         default_factory=lambda: frozenset(DEFAULT_RETRYABLE_SQLSTATES)
     )
 
