@@ -13,7 +13,6 @@ import os
 import sys
 
 import asyncpg
-
 from pgshield import run_asyncpg_transaction
 
 

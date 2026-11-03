@@ -12,10 +12,9 @@ import asyncio
 import os
 import sys
 
+from pgshield import run_sqlalchemy_transaction
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-from pgshield import run_sqlalchemy_transaction
 
 
 async def main() -> None:
