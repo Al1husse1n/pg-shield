@@ -1,0 +1,16 @@
+{
+  "include": [
+    "Main/src",
+    "Main/tests",
+    "examples"
+  ],
+  "extraPaths": [
+    "Main/src"
+  ],
+  "venvPath": "Main",
+  "venv": ".venv",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": "none",
+  "reportPrivateUsage": "none",
+  "reportUnnecessaryIsInstance": "none"
+}
