@@ -5,10 +5,24 @@ description = "PostgreSQL concurrency and retry toolkit for Python applications"
 authors = [
     {name = "Ali Hussein",email = "ah0979075074@gmail.com"}
 ]
+license = { file = "LICENSE" }
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
 ]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Typing :: Typed"
+]
+
+[project.urls]
+Homepage = "https://github.com/Al1husse1n/pg-shield"
+Repository = "https://github.com/Al1husse1n/pg-shield"
 
 [tool.poetry]
 packages = [{include = "pgshield", from = "src"}]
