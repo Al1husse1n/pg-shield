@@ -88,7 +88,7 @@ class SQLAlchemyQueryExecutor:
         self._session = session
 
     async def execute_query(
-        self, sql: str, params: Optional[Sequence[Any]] = None
+        self, sql: str, params: Optional[Union[Sequence[Any], Mapping[str, Any]]] = None
     ) -> Sequence[Mapping[str, Any]]:
         """Execute a read query and return rows as mappings coerced to plain dicts."""
         stmt = text(sql)
