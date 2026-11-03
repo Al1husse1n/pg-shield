@@ -1,6 +1,7 @@
 """Unit tests for structured transaction logging and credential sanitization."""
 
 import logging
+from typing import Any
 
 from pgshield.instrumentation.logging import (
     TransactionEventType,
@@ -48,7 +49,7 @@ class TestLoggingSanitization:
         assert sanitized[2] == 123
 
     def test_sanitize_cyclic_structure(self):
-        d = {"name": "alice"}
+        d: dict[str, Any] = {"name": "alice"}
         d["self"] = d  # Cycle!
         sanitized = sanitize_value(d)
         assert sanitized["name"] == "alice"
