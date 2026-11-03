@@ -1,7 +1,9 @@
 """Unit tests for RetryPolicy configuration object."""
 
 from dataclasses import FrozenInstanceError
+
 import pytest
+
 from pgshield.retry.classifier import DEFAULT_RETRYABLE_SQLSTATES
 from pgshield.retry.policy import RetryPolicy
 

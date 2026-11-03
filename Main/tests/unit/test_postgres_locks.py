@@ -1,16 +1,14 @@
 """Unit tests for PostgreSQL pg_locks inspection and blocking analysis."""
 
 import pytest
+
 from pgshield.postgres.locks import (
-    AuthoritativeBlocking,
-    BlockingRelationship,
     LockInfo,
     build_locks_query,
     detect_blocking_chains,
     fetch_blocking_pids,
     fetch_locks,
     fetch_locks_with_authoritative,
-    lock_modes_conflict,
     parse_lock_rows,
 )
 
@@ -199,8 +197,20 @@ class TestPostgresLocks:
     def test_lock_compatibility_access_share_and_row_exclusive_no_conflict(self):
         """a. AccessShareLock holder + RowExclusiveLock waiter -> NO relationship."""
         locks = [
-            LockInfo(pid=1, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
-            LockInfo(pid=2, lock_type="relation", mode="RowExclusiveLock", granted=False, relation_name="t1"),
+            LockInfo(
+                pid=1,
+                lock_type="relation",
+                mode="AccessShareLock",
+                granted=True,
+                relation_name="t1",
+            ),
+            LockInfo(
+                pid=2,
+                lock_type="relation",
+                mode="RowExclusiveLock",
+                granted=False,
+                relation_name="t1",
+            ),
         ]
         blocking = detect_blocking_chains(locks)
         assert len(blocking) == 0
@@ -208,8 +218,20 @@ class TestPostgresLocks:
     def test_lock_compatibility_row_exclusive_and_access_exclusive_conflict(self):
         """b. RowExclusiveLock holder + AccessExclusiveLock waiter -> relationship."""
         locks = [
-            LockInfo(pid=1, lock_type="relation", mode="RowExclusiveLock", granted=True, relation_name="t1"),
-            LockInfo(pid=2, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+            LockInfo(
+                pid=1,
+                lock_type="relation",
+                mode="RowExclusiveLock",
+                granted=True,
+                relation_name="t1",
+            ),
+            LockInfo(
+                pid=2,
+                lock_type="relation",
+                mode="AccessExclusiveLock",
+                granted=False,
+                relation_name="t1",
+            ),
         ]
         blocking = detect_blocking_chains(locks)
         assert len(blocking) == 1
@@ -220,9 +242,27 @@ class TestPostgresLocks:
     def test_lock_compatibility_multiple_access_share_and_access_exclusive(self):
         """c. Two AccessShareLock holders + one AccessExclusiveLock waiter -> two relationships."""
         locks = [
-            LockInfo(pid=1, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
-            LockInfo(pid=2, lock_type="relation", mode="AccessShareLock", granted=True, relation_name="t1"),
-            LockInfo(pid=3, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+            LockInfo(
+                pid=1,
+                lock_type="relation",
+                mode="AccessShareLock",
+                granted=True,
+                relation_name="t1",
+            ),
+            LockInfo(
+                pid=2,
+                lock_type="relation",
+                mode="AccessShareLock",
+                granted=True,
+                relation_name="t1",
+            ),
+            LockInfo(
+                pid=3,
+                lock_type="relation",
+                mode="AccessExclusiveLock",
+                granted=False,
+                relation_name="t1",
+            ),
         ]
         blocking = detect_blocking_chains(locks)
         assert len(blocking) == 2
@@ -230,10 +270,18 @@ class TestPostgresLocks:
         assert all(b.blocked_pid == 3 for b in blocking)
 
     def test_lock_compatibility_unknown_mode_failsafe_conflict(self):
-        """d. Unknown mode (e.g. 'SomeFutureLock') + AccessExclusiveLock waiter -> relationship (fail-safe)."""
+        """d. Unknown mode + AccessExclusiveLock waiter -> relationship (fail-safe)."""
         locks = [
-            LockInfo(pid=1, lock_type="relation", mode="SomeFutureLock", granted=True, relation_name="t1"),
-            LockInfo(pid=2, lock_type="relation", mode="AccessExclusiveLock", granted=False, relation_name="t1"),
+            LockInfo(
+                pid=1, lock_type="relation", mode="SomeFutureLock", granted=True, relation_name="t1"
+            ),
+            LockInfo(
+                pid=2,
+                lock_type="relation",
+                mode="AccessExclusiveLock",
+                granted=False,
+                relation_name="t1",
+            ),
         ]
         blocking = detect_blocking_chains(locks)
         assert len(blocking) == 1
@@ -242,7 +290,7 @@ class TestPostgresLocks:
 
     @pytest.mark.asyncio
     async def test_fetch_locks_with_authoritative_blocking(self):
-        """fetch_locks_with_authoritative returns locks and AuthoritativeBlocking records from pg_blocking_pids."""
+        """fetch_locks_with_authoritative returns locks and AuthoritativeBlocking."""
         mock_lock_rows = [
             {
                 "pid": 102,

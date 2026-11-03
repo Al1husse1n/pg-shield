@@ -1,11 +1,10 @@
 """Unit tests for PostgreSQL diagnostics and report construction."""
 
 import pytest
-from pgshield.postgres.activity import SessionActivity
+
 from pgshield.postgres.diagnostics import (
     DiagnosticCollector,
     DiagnosticMode,
-    DiagnosticReport,
     build_diagnostic_report,
     generate_explanation,
 )
@@ -23,6 +22,7 @@ class DummyDriverException(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 DummyDriverException.__module__ = "asyncpg.exceptions"
 
@@ -44,7 +44,10 @@ class TestPostgresDiagnostics:
     """Test suite for DiagnosticReport generation and explanations."""
 
     def test_report_for_40001_serialization_failure(self):
-        err = DummyDriverException("could not serialize access due to read/write dependencies", sqlstate=SQLSTATE_SERIALIZATION_FAILURE)
+        err = DummyDriverException(
+            "could not serialize access due to read/write dependencies",
+            sqlstate=SQLSTATE_SERIALIZATION_FAILURE,
+        )
 
         report = build_diagnostic_report(
             error=err,
@@ -66,8 +69,16 @@ class TestPostgresDiagnostics:
         err = DummyDriverException("deadlock detected", sqlstate=SQLSTATE_DEADLOCK_DETECTED)
 
         locks = [
-            LockInfo(pid=10, lock_type="relation", mode="ExclusiveLock", granted=True, relation_name="tbl_a"),
-            LockInfo(pid=11, lock_type="relation", mode="ShareLock", granted=False, relation_name="tbl_a"),
+            LockInfo(
+                pid=10,
+                lock_type="relation",
+                mode="ExclusiveLock",
+                granted=True,
+                relation_name="tbl_a",
+            ),
+            LockInfo(
+                pid=11, lock_type="relation", mode="ShareLock", granted=False, relation_name="tbl_a"
+            ),
         ]
 
         report = build_diagnostic_report(
@@ -86,7 +97,9 @@ class TestPostgresDiagnostics:
         assert any("consistent global order" in r for r in report.recommendations)
 
     def test_report_for_integrity_violation(self):
-        err = DummyDriverException("duplicate key violates unique constraint", sqlstate=SQLSTATE_UNIQUE_VIOLATION)
+        err = DummyDriverException(
+            "duplicate key violates unique constraint", sqlstate=SQLSTATE_UNIQUE_VIOLATION
+        )
 
         report = build_diagnostic_report(error=err)
         assert report.sqlstate == "23505"
@@ -111,7 +124,9 @@ class TestPostgresDiagnostics:
     async def test_diagnostic_collector_collect_flow(self):
         executor = MockQueryExecutor(
             activity_rows=[{"pid": 20, "database": "prod", "state": "active"}],
-            lock_rows=[{"pid": 20, "lock_type": "relation", "mode": "RowExclusiveLock", "granted": True}],
+            lock_rows=[
+                {"pid": 20, "lock_type": "relation", "mode": "RowExclusiveLock", "granted": True}
+            ],
         )
 
         collector = DiagnosticCollector(mode=DiagnosticMode.ON_FAILURE, executor=executor)

@@ -1,10 +1,8 @@
 """Unit tests for structured transaction logging and credential sanitization."""
 
 import logging
-import pytest
 
 from pgshield.instrumentation.logging import (
-    LoggedTransactionEvent,
     TransactionEventType,
     TransactionLogger,
     sanitize_value,
@@ -126,7 +124,10 @@ class TestTransactionLogger:
         )
         assert event.event_type == TransactionEventType.TRANSACTION_FAILED
         assert event.attempt == 3
-        assert "Transaction failed permanently [tx-500] (SQLSTATE 40001) after 3 attempt(s)" in caplog.text
+        assert (
+            "Transaction failed permanently [tx-500] (SQLSTATE 40001) after 3 attempt(s)"
+            in caplog.text
+        )
 
     def test_logger_disabled(self, caplog):
         caplog.set_level(logging.DEBUG)

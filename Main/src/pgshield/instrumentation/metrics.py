@@ -7,10 +7,10 @@ and latency distributions without requiring external monitoring dependencies.
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
 import threading
-from typing import Deque, Dict, Final, List, Optional, Protocol, runtime_checkable
+from collections import deque
+from dataclasses import dataclass
+from typing import Deque, Final, Optional, Protocol, runtime_checkable
 
 from pgshield.postgres.errors import (
     SQLSTATE_DEADLOCK_DETECTED,

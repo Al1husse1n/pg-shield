@@ -1,15 +1,14 @@
 """Transaction runner implementation for PGShield.
 
-This module provides the central TransactionRunner orchestrating whole-transaction
-retries with rollback, error classification, jittered exponential backoff, structured
-logging, metrics collection, and optional diagnostics.
+Coordinates whole-transaction retries. Owns begin/commit/rollback and the retry loop.
+Does not own session/connection acquisition.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,
@@ -28,7 +27,6 @@ from pgshield.instrumentation.metrics import MetricsCollector, NullMetricsCollec
 from pgshield.postgres.diagnostics import DiagnosticCollector, DiagnosticReport
 from pgshield.retry.backoff import RandomFloatGenerator, calculate_backoff
 from pgshield.retry.classifier import (
-    ClassificationResult,
     SQLStateExtractor,
     classify_error,
 )
@@ -272,14 +270,17 @@ class TransactionRunner:
                     # 3. Commit transaction upon successful operation return
                     if active_adapter is not None:
                         in_commit = True
-                        # Commit failures are never retried because the outcome is ambiguous (server may have committed).
+                        # Commit failures are never retried because the outcome
+                        # is ambiguous (server may have committed).
                         await active_adapter.commit()
                         in_commit = False
 
                     attempt_duration = time.monotonic() - attempt_start
                     total_duration = time.monotonic() - overall_start_time
 
-                    if self._diagnostics is not None and self._diagnostics.should_collect(has_error=False):
+                    if self._diagnostics is not None and self._diagnostics.should_collect(
+                        has_error=False
+                    ):
                         try:
                             last_diag_report = await self._diagnostics.collect(
                                 error=None,
@@ -372,7 +373,8 @@ class TransactionRunner:
                         except Exception:
                             pass
 
-                    # 4c. Non-retryable error, commit failure, OR reached max attempts: fail immediately
+                    # 4c. Non-retryable error, commit failure, OR max attempts reached:
+                    # fail immediately
                     if in_commit or not classification.retryable or is_last_attempt:
                         ctx.history.append(
                             AttemptRecord(
@@ -441,6 +443,8 @@ class TransactionRunner:
                         await self._sleep_func(delay)
 
             # Defensive fallback if loop completes unexpectedly
-            raise RuntimeError("Transaction attempts exhausted without resolving.")  # pragma: no cover
+            raise RuntimeError(
+                "Transaction attempts exhausted without resolving."
+            )  # pragma: no cover
         finally:
             _reset_current_context(token)

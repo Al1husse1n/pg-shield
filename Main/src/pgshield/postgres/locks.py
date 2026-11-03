@@ -1,7 +1,7 @@
 """PostgreSQL pg_locks inspection and blocking analysis for PGShield.
 
-This module provides focused utilities to inspect database locks, identify lock contention,
-and analyze blocking/deadlock relationships without heavy query overhead.
+Queries pg_locks and pg_blocking_pids. Distinguishes inferred blocking
+(pg_locks + compatibility matrix) from authoritative blocking (pg_blocking_pids).
 """
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ from pgshield.postgres.activity import QueryExecutor
 LOCKS_QUERY_BASE = """
 SELECT
     l.pid,
-    l.locktype AS lock_type,            
+    l.locktype AS lock_type,
     l.mode,
-    l.granted,                      
+    l.granted,
     COALESCE(c.relname, '') AS relation_name,
     COALESCE(n.nspname, '') AS schema_name,
     l.page,
@@ -46,59 +46,69 @@ WHERE l.pid <> pg_backend_pid()
 _CONFLICT_RULES: Final[dict[str, frozenset[str]]] = {
     "AccessShareLock": frozenset({"AccessExclusiveLock"}),
     "RowShareLock": frozenset({"ExclusiveLock", "AccessExclusiveLock"}),
-    "RowExclusiveLock": frozenset({
-        "ShareLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
-    "ShareUpdateExclusiveLock": frozenset({
-        "ShareUpdateExclusiveLock",
-        "ShareLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
-    "ShareLock": frozenset({
-        "RowExclusiveLock",
-        "ShareUpdateExclusiveLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
-    "ShareRowExclusiveLock": frozenset({
-        "RowExclusiveLock",
-        "ShareUpdateExclusiveLock",
-        "ShareLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
-    "ExclusiveLock": frozenset({
-        "RowShareLock",
-        "RowExclusiveLock",
-        "ShareUpdateExclusiveLock",
-        "ShareLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
-    "AccessExclusiveLock": frozenset({
-        "AccessShareLock",
-        "RowShareLock",
-        "RowExclusiveLock",
-        "ShareUpdateExclusiveLock",
-        "ShareLock",
-        "ShareRowExclusiveLock",
-        "ExclusiveLock",
-        "AccessExclusiveLock",
-    }),
+    "RowExclusiveLock": frozenset(
+        {
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
+    "ShareUpdateExclusiveLock": frozenset(
+        {
+            "ShareUpdateExclusiveLock",
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
+    "ShareLock": frozenset(
+        {
+            "RowExclusiveLock",
+            "ShareUpdateExclusiveLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
+    "ShareRowExclusiveLock": frozenset(
+        {
+            "RowExclusiveLock",
+            "ShareUpdateExclusiveLock",
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
+    "ExclusiveLock": frozenset(
+        {
+            "RowShareLock",
+            "RowExclusiveLock",
+            "ShareUpdateExclusiveLock",
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
+    "AccessExclusiveLock": frozenset(
+        {
+            "AccessShareLock",
+            "RowShareLock",
+            "RowExclusiveLock",
+            "ShareUpdateExclusiveLock",
+            "ShareLock",
+            "ShareRowExclusiveLock",
+            "ExclusiveLock",
+            "AccessExclusiveLock",
+        }
+    ),
 }
 
 _RELATION_LOCK_COMPATIBILITY: Final[dict[tuple[str, str], bool]] = {
-    (m1, m2): (m2 in _CONFLICT_RULES[m1])
-    for m1 in _CONFLICT_RULES
-    for m2 in _CONFLICT_RULES
+    (m1, m2): (m2 in _CONFLICT_RULES[m1]) for m1 in _CONFLICT_RULES for m2 in _CONFLICT_RULES
 }
 
 
@@ -108,6 +118,7 @@ def lock_modes_conflict(holder_mode: str, waiter_mode: str) -> bool:
     Defaults to True (fail-safe) if either lock mode is unrecognized.
     """
     return _RELATION_LOCK_COMPATIBILITY.get((holder_mode, waiter_mode), True)
+
 
 @dataclass(frozen=True, slots=True)
 class LockInfo:
@@ -176,7 +187,8 @@ class BlockingRelationship:
         waiting_mode: The lock mode requested by the blocked PID.
         holding_mode: The lock mode held by the blocking PID.
         resource_description: Human-readable description of the contested resource.
-        authoritative: True if verified directly via pg_blocking_pids, False if inferred from pg_locks.
+        authoritative: True if verified directly via pg_blocking_pids,
+            False if inferred from pg_locks.
     """
 
     blocked_pid: int
@@ -249,8 +261,8 @@ def detect_blocking_chains(locks: Sequence[LockInfo]) -> List[BlockingRelationsh
         List of detected BlockingRelationship records.
     """
     # Group granted locks by target resource key
-    granted_by_target: Dict[Tuple[Any, ...], List[LockInfo]] = {}   #for granted=true
-    waiting_locks: List[LockInfo] = []      #for granted=false
+    granted_by_target: Dict[Tuple[Any, ...], List[LockInfo]] = {}  # for granted=true
+    waiting_locks: List[LockInfo] = []  # for granted=false
 
     for lock in locks:
         if lock.granted:
@@ -327,9 +339,7 @@ async def fetch_blocking_pids(executor: QueryExecutor, *, pid: int) -> List[int]
     Returns:
         List of process IDs that are directly blocking the target process.
     """
-    rows = await executor.execute_query(
-        "SELECT pg_blocking_pids($1) AS blocking_pids;", [pid]
-    )
+    rows = await executor.execute_query("SELECT pg_blocking_pids($1) AS blocking_pids;", [pid])
     if not rows:
         return []
     raw = rows[0].get("blocking_pids")
@@ -356,7 +366,7 @@ def build_locks_query(*, filter_pids: Optional[Sequence[int]] = None) -> str:
 
 async def fetch_locks(
     executor: QueryExecutor,
-    *,              # enforces key word only passing of argument
+    *,  # enforces key word only passing of argument
     filter_pids: Optional[Sequence[int]] = None,
 ) -> List[LockInfo]:
     """Execute a query against pg_locks using the provided QueryExecutor.

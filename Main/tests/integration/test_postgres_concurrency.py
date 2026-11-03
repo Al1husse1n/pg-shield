@@ -6,7 +6,7 @@ and are deselected by default during local unit test runs.
 """
 
 import asyncio
-from typing import List
+
 import asyncpg
 import asyncpg.exceptions
 import pytest
@@ -14,19 +14,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pgshield.integrations.asyncpg import (
-    AsyncpgConnectionAdapter,
     AsyncpgQueryExecutor,
     AsyncpgTransactionRunner,
     run_asyncpg_transaction,
 )
+from pgshield.integrations.sqlalchemy import (
+    run_sqlalchemy_transaction,
+)
 from pgshield.postgres.locks import (
     fetch_blocking_pids,
     fetch_locks_with_authoritative,
-)
-from pgshield.integrations.sqlalchemy import (
-    SQLAlchemySessionAdapter,
-    SQLAlchemyTransactionRunner,
-    run_sqlalchemy_transaction,
 )
 from pgshield.retry.policy import RetryPolicy
 
@@ -37,10 +34,13 @@ pytestmark = pytest.mark.integration
 # Existing integration tests updated with fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_real_postgres_asyncpg_successful_transaction(asyncpg_conn: asyncpg.Connection):
     """Verify transaction commit and query execution on real PostgreSQL using asyncpg."""
-    await asyncpg_conn.execute("CREATE TEMP TABLE test_pgshield_items (id SERIAL PRIMARY KEY, val TEXT);")
+    await asyncpg_conn.execute(
+        "CREATE TEMP TABLE test_pgshield_items (id SERIAL PRIMARY KEY, val TEXT);"
+    )
 
     async def insert_item(c: asyncpg.Connection) -> int:
         row = await c.fetchrow(
@@ -84,6 +84,7 @@ async def test_real_postgres_sqlalchemy_rollback_on_error(sqlalchemy_session: As
 # ---------------------------------------------------------------------------
 # Phase 3 Required Integration Tests (a through f)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_40001_is_retried_to_success(pg_dsn: str):
@@ -342,7 +343,8 @@ async def test_sqlalchemy_already_in_transaction_refused(sqlalchemy_session: Asy
 
     expected_msg = (
         "PGShield cannot begin a transaction on a session that is already in a transaction. "
-        "Pass a session with no active transaction, or wrap your own boundary around a fresh session."
+        "Pass a session with no active transaction, "
+        "or wrap your own boundary around a fresh session."
     )
 
     with pytest.raises(RuntimeError) as exc_info:
@@ -362,8 +364,10 @@ async def test_asyncpg_already_in_transaction_refused(asyncpg_conn: asyncpg.Conn
     await tx.start()
 
     expected_msg = (
-        "PGShield cannot begin a transaction on an asyncpg connection that is already in a transaction. "
-        "Acquire a fresh connection from your pool for each retryable operation, or wrap your own boundary."
+        "PGShield cannot begin a transaction on an asyncpg connection "
+        "that is already in a transaction. "
+        "Acquire a fresh connection from your pool for each retryable operation, "
+        "or wrap your own boundary."
     )
 
     try:
@@ -392,7 +396,8 @@ async def test_pg_blocking_pids_matches_authoritative_channel(pg_dsn: str):
             "CREATE TABLE IF NOT EXISTS test_auth_channel (id INT PRIMARY KEY, val TEXT);"
         )
         await conn_setup.execute(
-            "TRUNCATE TABLE test_auth_channel; INSERT INTO test_auth_channel (id, val) VALUES (1, 'initial');"
+            "TRUNCATE TABLE test_auth_channel; "
+            "INSERT INTO test_auth_channel (id, val) VALUES (1, 'initial');"
         )
     finally:
         await conn_setup.close()
@@ -434,10 +439,17 @@ async def test_pg_blocking_pids_matches_authoritative_channel(pg_dsn: str):
         try:
             blocking_pids = await fetch_blocking_pids(observer_executor, pid=conn2_pid)
         except (asyncpg.exceptions.InsufficientPrivilegeError, PermissionError) as exc:
-            pytest.skip(f"pg_blocking_pids requires pg_monitor or superuser to view other sessions: {exc}")
+            pytest.skip(
+                f"pg_blocking_pids requires pg_monitor or superuser to view other sessions: {exc}"
+            )
         except Exception as exc:
-            if "permission denied" in str(exc).lower() or "insufficient privilege" in str(exc).lower():
-                pytest.skip(f"pg_blocking_pids requires pg_monitor or superuser to view other sessions: {exc}")
+            if (
+                "permission denied" in str(exc).lower()
+                or "insufficient privilege" in str(exc).lower()
+            ):
+                pytest.skip(
+                    "pg_blocking_pids requires pg_monitor or superuser to view other sessions"
+                )
             raise
 
         # Assert conn1's PID is in the returned list
@@ -473,4 +485,3 @@ async def test_pg_blocking_pids_matches_authoritative_channel(pg_dsn: str):
             await observer.close()
         except Exception:
             pass
-

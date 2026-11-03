@@ -1,8 +1,10 @@
 """Database driver and ORM integrations for PGShield.
 
 Provides:
-- sqlalchemy.py: SQLAlchemy AsyncSession integration (SQLAlchemySessionAdapter, SQLAlchemyTransactionRunner, run_sqlalchemy_transaction)
-- asyncpg.py: asyncpg driver integration (AsyncpgConnectionAdapter, AsyncpgTransactionRunner, run_asyncpg_transaction)
+- sqlalchemy.py: SQLAlchemy AsyncSession integration
+  (SQLAlchemySessionAdapter, SQLAlchemyTransactionRunner, run_sqlalchemy_transaction)
+- asyncpg.py: asyncpg driver integration
+  (AsyncpgConnectionAdapter, AsyncpgTransactionRunner, run_asyncpg_transaction)
 """
 
 from pgshield.integrations.asyncpg import (

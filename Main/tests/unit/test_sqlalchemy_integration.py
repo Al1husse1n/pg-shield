@@ -1,8 +1,9 @@
 """Unit tests for SQLAlchemy AsyncSession integration in PGShield."""
 
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pgshield.integrations.sqlalchemy import (
@@ -19,6 +20,7 @@ class MockDriverError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 MockDriverError.__module__ = "asyncpg.exceptions"
 
@@ -68,7 +70,8 @@ class TestSQLAlchemyIntegration:
 
         expected_msg = (
             "PGShield cannot begin a transaction on a session that is already in a transaction. "
-            "Pass a session with no active transaction, or wrap your own boundary around a fresh session."
+            "Pass a session with no active transaction, "
+            "or wrap your own boundary around a fresh session."
         )
         with pytest.raises(RuntimeError) as exc_info:
             await adapter.begin()
@@ -203,7 +206,9 @@ class TestSQLAlchemyIntegration:
         executor = SQLAlchemyQueryExecutor(mock_session)
         assert isinstance(executor, QueryExecutor)
 
-        rows = await executor.execute_query("SELECT col1, col2 FROM tbl WHERE col2 = :val", {"val": 42})
+        rows = await executor.execute_query(
+            "SELECT col1, col2 FROM tbl WHERE col2 = :val", {"val": 42}
+        )
         assert rows == [{"col1": "val1", "col2": 42}]
         assert isinstance(rows[0], dict)
         mock_session.execute.assert_awaited_once()

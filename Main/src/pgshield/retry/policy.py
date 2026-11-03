@@ -7,7 +7,7 @@ including attempt limits, delay bounds, and backoff parameters.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import FrozenSet, Optional, Set
+from typing import FrozenSet
 
 from pgshield.retry.classifier import DEFAULT_RETRYABLE_SQLSTATES
 
@@ -53,17 +53,13 @@ class RetryPolicy:
                 f"max_attempts must be a positive integer >= 1, got {self.max_attempts!r}"
             )
         if self.base_delay < 0:
-            raise ValueError(
-                f"base_delay must be non-negative (>= 0.0), got {self.base_delay!r}"
-            )
+            raise ValueError(f"base_delay must be non-negative (>= 0.0), got {self.base_delay!r}")
         if self.max_delay < self.base_delay:
             raise ValueError(
                 f"max_delay ({self.max_delay}) cannot be less than base_delay ({self.base_delay})"
             )
         if self.backoff_factor < 1.0:
-            raise ValueError(
-                f"backoff_factor must be >= 1.0, got {self.backoff_factor!r}"
-            )
+            raise ValueError(f"backoff_factor must be >= 1.0, got {self.backoff_factor!r}")
         if not isinstance(self.retryable_sqlstates, frozenset):
             # Normalize to frozen set if passed as a set or list
             object.__setattr__(

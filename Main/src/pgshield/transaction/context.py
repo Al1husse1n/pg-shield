@@ -21,8 +21,8 @@ This module provides:
 from __future__ import annotations
 
 import contextvars
-from dataclasses import dataclass, field
 import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pgshield.retry.classifier import ClassificationResult
@@ -55,7 +55,7 @@ class AttemptRecord:
 
     @property
     def was_retried(self) -> bool:
-        """Return True if this attempt encountered a retryable error and triggered a backoff delay."""
+        """Return True if this attempt encountered a retryable error and backoff delay."""
         return self.backoff_delay > 0.0 or (
             self.classification is not None and self.classification.retryable
         )
@@ -125,7 +125,9 @@ def get_current_context() -> Optional[TransactionContext]:
     return _CURRENT_TRANSACTION_CONTEXT.get()
 
 
-def _set_current_context(ctx: Optional[TransactionContext]) -> contextvars.Token[Optional[TransactionContext]]:
+def _set_current_context(
+    ctx: Optional[TransactionContext],
+) -> contextvars.Token[Optional[TransactionContext]]:
     """Internal helper to set the active TransactionContext in the ContextVar."""
     return _CURRENT_TRANSACTION_CONTEXT.set(ctx)
 

@@ -1,6 +1,7 @@
 """Unit tests for backoff calculation subsystem."""
 
 import pytest
+
 from pgshield.retry.backoff import calculate_backoff
 from pgshield.retry.policy import RetryPolicy
 
@@ -16,8 +17,11 @@ class TestBackoffCalculation:
 
     def test_delay_never_exceeds_max_delay(self):
         policy = RetryPolicy(base_delay=0.05, max_delay=1.0)
+
         # Even with deterministic max rng
-        max_rng = lambda a, b: b
+        def max_rng(a: float, b: float) -> float:
+            return b
+
         for attempt in range(20):
             delay = calculate_backoff(attempt, policy, random_func=max_rng)
             assert delay <= 1.0
@@ -52,18 +56,24 @@ class TestBackoffCalculation:
         policy = RetryPolicy(base_delay=0.1, max_delay=2.0, jitter=True)
 
         # Min RNG: returns lower bound 0.0
-        min_rng = lambda a, b: a
+        def min_rng(a: float, b: float) -> float:
+            return a
+
         assert calculate_backoff(0, policy, random_func=min_rng) == pytest.approx(0.0)
         assert calculate_backoff(3, policy, random_func=min_rng) == pytest.approx(0.0)
 
         # Max RNG: returns ceiling
-        max_rng = lambda a, b: b
+        def max_rng(a: float, b: float) -> float:
+            return b
+
         assert calculate_backoff(0, policy, random_func=max_rng) == pytest.approx(0.1)
         assert calculate_backoff(1, policy, random_func=max_rng) == pytest.approx(0.2)
         assert calculate_backoff(2, policy, random_func=max_rng) == pytest.approx(0.4)
 
         # Midpoint RNG: returns average of bounds
-        mid_rng = lambda a, b: (a + b) / 2.0
+        def mid_rng(a: float, b: float) -> float:
+            return (a + b) / 2.0
+
         assert calculate_backoff(0, policy, random_func=mid_rng) == pytest.approx(0.05)
         assert calculate_backoff(1, policy, random_func=mid_rng) == pytest.approx(0.10)
 
@@ -79,6 +89,9 @@ class TestBackoffCalculation:
 
     def test_large_attempt_does_not_overflow(self):
         policy = RetryPolicy(base_delay=0.05, max_delay=10.0)
-        max_rng = lambda a, b: b
+
+        def max_rng(a: float, b: float) -> float:
+            return b
+
         delay = calculate_backoff(10000, policy, random_func=max_rng)
         assert delay == pytest.approx(10.0)

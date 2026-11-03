@@ -20,15 +20,13 @@ from typing import (
 )
 
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pgshield.postgres.errors import parse_postgres_error
 from pgshield.retry.classifier import extract_sqlstate
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.runner import (
     TransactionAdapter,
-    TransactionResult,
     TransactionRunner,
 )
 
@@ -59,8 +57,9 @@ class SQLAlchemySessionAdapter(TransactionAdapter):
         """Begin a new database transaction. Refuses sessions already in a transaction."""
         if self._session.in_transaction():
             raise RuntimeError(
-                "PGShield cannot begin a transaction on a session that is already in a transaction. "
-                "Pass a session with no active transaction, or wrap your own boundary around a fresh session."
+                "PGShield cannot begin a transaction on a session that is already in "
+                "a transaction. Pass a session with no active transaction, "
+                "or wrap your own boundary around a fresh session."
             )
         await self._session.begin()
 

@@ -1,6 +1,7 @@
 """Unit tests for metrics collector abstraction and InMemoryMetricsCollector."""
 
 import pytest
+
 from pgshield.instrumentation.metrics import (
     InMemoryMetricsCollector,
     NullMetricsCollector,
@@ -40,7 +41,9 @@ class TestMetricsCollector:
 
         # Record retried transaction with serialization failure
         metrics.record_transaction_started("tx-2")
-        metrics.record_transaction_retry(1, 0.1, sqlstate="40001", error_category="serialization_failure")
+        metrics.record_transaction_retry(
+            1, 0.1, sqlstate="40001", error_category="serialization_failure"
+        )
         metrics.record_transaction_committed(0.25, 2, "tx-2")
 
         assert metrics.transactions_total == 2
@@ -50,8 +53,12 @@ class TestMetricsCollector:
 
         # Record failed transaction with deadlock
         metrics.record_transaction_started("tx-3")
-        metrics.record_transaction_retry(1, 0.1, sqlstate="40P01", error_category="deadlock_detected")
-        metrics.record_transaction_failed(0.3, 2, sqlstate="40P01", error_category="deadlock_detected")
+        metrics.record_transaction_retry(
+            1, 0.1, sqlstate="40P01", error_category="deadlock_detected"
+        )
+        metrics.record_transaction_failed(
+            0.3, 2, sqlstate="40P01", error_category="deadlock_detected"
+        )
 
         assert metrics.transactions_total == 3
         assert metrics.transactions_failed_total == 1
@@ -79,7 +86,7 @@ class TestMetricsCollector:
         assert metrics.snapshot().avg_duration_seconds == 0.0
 
     def test_bounded_memory_under_high_volume(self):
-        """Verify that recording 100,000 transactions maintains bounded internal sample collections."""
+        """Verify recording 100,000 transactions bounds sample collections."""
         metrics = InMemoryMetricsCollector(max_samples=10_000)
 
         for i in range(100_000):

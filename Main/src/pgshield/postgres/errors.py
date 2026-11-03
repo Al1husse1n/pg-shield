@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final, Optional
 
+from pgshield._driver_evidence import (
+    _has_postgres_driver_evidence,
+)
+
 # Key PostgreSQL SQLSTATE Codes
 SQLSTATE_SERIALIZATION_FAILURE: Final[str] = "40001"
 SQLSTATE_DEADLOCK_DETECTED: Final[str] = "40P01"
@@ -41,7 +45,7 @@ class PostgresErrorCategory(str, Enum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True, slots=True)     #cannot modify instances after creation
+@dataclass(frozen=True, slots=True)  # cannot modify instances after creation
 class PostgresErrorDetails:
     """Normalized, driver-agnostic details extracted from a PostgreSQL exception.
 
@@ -79,7 +83,7 @@ class PostgresErrorDetails:
 
     @property
     def is_concurrency_conflict(self) -> bool:
-        """Return True if this error represents a transaction concurrency conflict (40001 or 40P01)."""
+        """Return True if error represents concurrency conflict (40001 or 40P01)."""
         return self.is_serialization_failure or self.is_deadlock
 
 
@@ -118,13 +122,6 @@ def _extract_attribute(target: Any, *attr_names: str) -> Optional[Any]:
     return None
 
 
-from pgshield._driver_evidence import (
-    _DRIVER_CLASS_ALLOWLIST,
-    _DRIVER_MODULE_KEYWORDS,
-    _has_postgres_driver_evidence,
-)
-
-
 def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
     """Parse and normalize an arbitrary exception into structured PostgresErrorDetails.
 
@@ -145,8 +142,8 @@ def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
         )
 
     # Locate underlying driver exception if wrapped (e.g. SQLAlchemy DBAPIError.orig)
-    underlying: BaseException = error       
-    orig = getattr(error, "orig", None)     #SQLAlchemy database exceptions commonly have an underlying exception accessible through orig
+    underlying: BaseException = error
+    orig = getattr(error, "orig", None)  # SQLAlchemy underlying exception accessible via orig
     if isinstance(orig, BaseException):
         underlying = orig
     elif isinstance(getattr(error, "__cause__", None), BaseException):
@@ -155,7 +152,9 @@ def parse_postgres_error(error: BaseException) -> PostgresErrorDetails:
     # Extract SQLSTATE only if driver evidence exists
     sqlstate: Optional[str] = None
     if _has_postgres_driver_evidence(underlying) or _has_postgres_driver_evidence(error):
-        raw_sqlstate = _extract_attribute(underlying, "sqlstate", "pgcode", "code")     #different names from different drivers
+        raw_sqlstate = _extract_attribute(
+            underlying, "sqlstate", "pgcode", "code"
+        )  # different names from different drivers
         if isinstance(raw_sqlstate, str) and len(raw_sqlstate) == 5:
             sqlstate = raw_sqlstate.upper()
 

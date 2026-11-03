@@ -284,10 +284,10 @@ try:
     await session.execute(...)
 except Exception as exc:
     result = classify_error(exc)
-    print(result.retryable)   # bool (True for 40001, 40P01)
-    print(result.sqlstate)    # "40001"
-    print(result.category)    # ErrorCategory.SERIALIZATION_FAILURE
-    print(result.reason)      # "PostgreSQL SQLSTATE 40001 (serialization_failure) is retryable"
+    print(result.retryable)  # bool (True for 40001, 40P01)
+    print(result.sqlstate)  # "40001"
+    print(result.category)  # ErrorCategory.SERIALIZATION_FAILURE
+    print(result.reason)  # "PostgreSQL SQLSTATE 40001 (serialization_failure) is retryable"
 ```
 
 ---
@@ -300,12 +300,12 @@ The `RetryPolicy` class is a frozen, immutable configuration dataclass governing
 from pgshield.retry import RetryPolicy
 
 policy = RetryPolicy(
-    max_attempts=5,          # Maximum execution attempts (initial + 4 retries)
-    base_delay=0.05,         # Initial backoff delay in seconds (50ms)
-    max_delay=2.0,           # Maximum backoff ceiling cap in seconds (2s)
-    backoff_factor=2.0,      # Exponential multiplier
-    jitter=True,             # Enable randomized Full Jitter
-    retryable_sqlstates={"40001", "40P01"}, # Target SQLSTATE codes
+    max_attempts=5,  # Maximum execution attempts (initial + 4 retries)
+    base_delay=0.05,  # Initial backoff delay in seconds (50ms)
+    max_delay=2.0,  # Maximum backoff ceiling cap in seconds (2s)
+    backoff_factor=2.0,  # Exponential multiplier
+    jitter=True,  # Enable randomized Full Jitter
+    retryable_sqlstates={"40001", "40P01"},  # Target SQLSTATE codes
 )
 ```
 
@@ -384,15 +384,15 @@ from pgshield.postgres import parse_postgres_error
 
 details = parse_postgres_error(error)
 
-print(details.sqlstate)            # e.g. "40001"
-print(details.category)            # PostgresErrorCategory.SERIALIZATION_FAILURE
-print(details.message)             # Primary error message string
-print(details.detail)              # Auxiliary PostgreSQL detail string (if present)
-print(details.hint)                # PostgreSQL hint string (if present)
-print(details.table_name)          # Table name if relation/constraint error
-print(details.column_name)         # Column name if applicable
-print(details.constraint_name)     # Constraint name if applicable
-print(details.driver_error_type)   # Name of underlying driver exception class
+print(details.sqlstate)  # e.g. "40001"
+print(details.category)  # PostgresErrorCategory.SERIALIZATION_FAILURE
+print(details.message)  # Primary error message string
+print(details.detail)  # Auxiliary PostgreSQL detail string (if present)
+print(details.hint)  # PostgreSQL hint string (if present)
+print(details.table_name)  # Table name if relation/constraint error
+print(details.column_name)  # Column name if applicable
+print(details.constraint_name)  # Constraint name if applicable
+print(details.driver_error_type)  # Name of underlying driver exception class
 ```
 
 ---
@@ -419,15 +419,16 @@ from pgshield import run_sqlalchemy_transaction, RetryPolicy
 engine = create_async_engine("postgresql+asyncpg://user:pass@localhost:5432/mydb")
 session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
+
 async def debit_account(session: AsyncSession, account_id: int, amount: float):
     # This callable is re-run from the top if a 40001/40P01 occurs
     async def _tx_operation(s: AsyncSession):
         stmt = select(Account).where(Account.id == account_id).with_for_update()
         account = (await s.execute(stmt)).scalar_one()
-        
+
         if account.balance < amount:
             raise ValueError("Insufficient balance")
-            
+
         account.balance -= amount
         return account.balance
 
@@ -464,20 +465,23 @@ The `AsyncpgConnectionAdapter` integrates directly with raw `asyncpg.Connection`
 import asyncpg
 from pgshield import run_asyncpg_transaction, RetryPolicy
 
-async def transfer_credits(conn: asyncpg.Connection, sender_id: int, recipient_id: int, credits: int):
+
+async def transfer_credits(
+    conn: asyncpg.Connection, sender_id: int, recipient_id: int, credits: int
+):
     async def _tx_operation(c: asyncpg.Connection):
         # 1. Deduct sender
         sender_balance = await c.fetchval(
             "UPDATE users SET credits = credits - $1 WHERE id = $2 RETURNING credits",
-            credits, sender_id
+            credits,
+            sender_id,
         )
         if sender_balance < 0:
             raise ValueError("Sender has insufficient credits")
-            
+
         # 2. Credit recipient
         await c.execute(
-            "UPDATE users SET credits = credits + $1 WHERE id = $2",
-            credits, recipient_id
+            "UPDATE users SET credits = credits + $1 WHERE id = $2", credits, recipient_id
         )
         return sender_balance
 
@@ -521,6 +525,7 @@ PGShield defines a generic, runtime-checkable protocol for running read-only dia
 
 ```python
 from typing import Any, Mapping, Optional, Protocol, Sequence
+
 
 class QueryExecutor(Protocol):
     async def execute_query(
@@ -588,12 +593,12 @@ class SessionActivity:
     username: Optional[str]
     application_name: Optional[str]
     client_addr: Optional[str]
-    state: Optional[str]                    # "active", "idle in transaction", "idle"
+    state: Optional[str]  # "active", "idle in transaction", "idle"
     query_start: Optional[datetime | str]
     xact_start: Optional[datetime | str]
-    wait_event_type: Optional[str]          # "Lock", "IO", "LWLock", "Client"
-    wait_event: Optional[str]               # e.g. "relation", "tuple", "ClientRead"
-    query_snippet: Optional[str]            # Truncated query (only if explicitly enabled)
+    wait_event_type: Optional[str]  # "Lock", "IO", "LWLock", "Client"
+    wait_event: Optional[str]  # e.g. "relation", "tuple", "ClientRead"
+    query_snippet: Optional[str]  # Truncated query (only if explicitly enabled)
 ```
 
 ### Convenient Diagnostic Properties
@@ -631,11 +636,11 @@ Reading `pg_locks` and `pg_blocking_pids` requires no privileges beyond the abil
 @dataclass(frozen=True, slots=True)
 class LockInfo:
     pid: int
-    lock_type: str                  # "relation", "transactionid", "tuple", "virtualxid"
-    mode: str                       # "RowExclusiveLock", "ExclusiveLock", "ShareLock"
-    granted: bool                   # True if held; False if blocked waiting
-    relation_name: Optional[str]    # e.g. "accounts"
-    schema_name: Optional[str]      # e.g. "public"
+    lock_type: str  # "relation", "transactionid", "tuple", "virtualxid"
+    mode: str  # "RowExclusiveLock", "ExclusiveLock", "ShareLock"
+    granted: bool  # True if held; False if blocked waiting
+    relation_name: Optional[str]  # e.g. "accounts"
+    schema_name: Optional[str]  # e.g. "public"
     page: Optional[int]
     tuple: Optional[int]
     transaction_id: Optional[str]
@@ -791,9 +796,23 @@ Any monitoring collector (StatsD, Prometheus client, OpenTelemetry SDK) can impl
 ```python
 class MetricsCollector(Protocol):
     def record_transaction_started(self, transaction_id: Optional[str] = None) -> None: ...
-    def record_transaction_committed(self, duration: float, attempts: int, transaction_id: Optional[str] = None) -> None: ...
-    def record_transaction_failed(self, duration: float, attempts: int, sqlstate: Optional[str] = None, error_category: Optional[str] = None) -> None: ...
-    def record_transaction_retry(self, attempt: int, delay: float, sqlstate: Optional[str] = None, error_category: Optional[str] = None) -> None: ...
+    def record_transaction_committed(
+        self, duration: float, attempts: int, transaction_id: Optional[str] = None
+    ) -> None: ...
+    def record_transaction_failed(
+        self,
+        duration: float,
+        attempts: int,
+        sqlstate: Optional[str] = None,
+        error_category: Optional[str] = None,
+    ) -> None: ...
+    def record_transaction_retry(
+        self,
+        attempt: int,
+        delay: float,
+        sqlstate: Optional[str] = None,
+        error_category: Optional[str] = None,
+    ) -> None: ...
     def record_serialization_failure(self) -> None: ...
     def record_deadlock(self) -> None: ...
 ```
@@ -833,6 +852,7 @@ You can inspect the live transaction context using `get_current_context()`:
 ```python
 from pgshield.transaction import get_current_context
 
+
 async def my_operation():
     ctx = get_current_context()
     if ctx is not None:
@@ -866,15 +886,15 @@ PGShield provides `@transaction` (and its alias `@transactional`) to wrap async 
 ```python
 from pgshield import transaction
 
+
 # Basic usage (defaults to RetryPolicy())
 @transaction
-async def get_user_profile(user_id: int):
-    ...
+async def get_user_profile(user_id: int): ...
+
 
 # Customized policy overrides
 @transaction(max_attempts=3, base_delay=0.1, max_delay=1.0, jitter=True)
-async def update_user_balance(user_id: int, new_balance: float):
-    ...
+async def update_user_balance(user_id: int, new_balance: float): ...
 ```
 
 ### Injecting Dependencies into Decorators
@@ -890,9 +910,9 @@ custom_runner = TransactionRunner(
     metrics=my_metrics,
 )
 
+
 @transaction(runner=custom_runner)
-async def execute_order(order_id: str):
-    ...
+async def execute_order(order_id: str): ...
 ```
 
 The decorator preserves the original function's signature and docstrings via `functools.wraps`, and attaches the runner instance as `.__pgshield_runner__`.
@@ -935,14 +955,17 @@ retry_policy = RetryPolicy(max_attempts=3, base_delay=0.05, max_delay=0.5)
 
 app = FastAPI(title="PGShield Banking API")
 
+
 async def get_db_session() -> AsyncSession:
     async with session_factory() as session:
         yield session
+
 
 class TransferRequest(BaseModel):
     account_from: int
     account_to: int
     amount: float
+
 
 @app.post("/transfer")
 async def transfer_money(
@@ -1030,9 +1053,10 @@ import asyncio
 import asyncpg
 from pgshield import run_asyncpg_transaction, RetryPolicy
 
+
 async def main():
     conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5432/postgres")
-    
+
     # Setup temporary table
     await conn.execute("CREATE TEMP TABLE counters (id INT PRIMARY KEY, val INT);")
     await conn.execute("INSERT INTO counters VALUES (1, 0);")
@@ -1050,9 +1074,10 @@ async def main():
         operation=increment_counter,
         policy=RetryPolicy(max_attempts=3, base_delay=0.05),
     )
-    
+
     print(f"Successfully updated counter to: {updated_val}")
     await conn.close()
+
 
 asyncio.run(main())
 ```
@@ -1073,6 +1098,7 @@ from pgshield import (
     TransactionLogger,
     InMemoryMetricsCollector,
 )
+
 
 async def execute_transfer(
     conn: asyncpg.Connection,
@@ -1104,13 +1130,15 @@ async def execute_transfer(
         # 2. Debit sender
         await conn.execute(
             "UPDATE bank_accounts SET balance = balance - $1 WHERE account_id = $2",
-            amount, sender,
+            amount,
+            sender,
         )
 
         # 3. Credit recipient
         await conn.execute(
             "UPDATE bank_accounts SET balance = balance + $1 WHERE account_id = $2",
-            amount, recipient,
+            amount,
+            recipient,
         )
 
         return {"sender_new_balance": sender_bal - amount}
@@ -1154,8 +1182,8 @@ The entire callable is executed again from line 1 on every attempt. Never assume
 ```python
 # ❌ DANGEROUS: Credit card could be charged multiple times!
 async def checkout():
-    await stripe_client.charge(amount=100) # External side effect!
-    await db.save_order()                  # If this triggers 40001, charge repeats!
+    await stripe_client.charge(amount=100)  # External side effect!
+    await db.save_order()  # If this triggers 40001, charge repeats!
 ```
 
 To handle side effects safely:
@@ -1358,13 +1386,28 @@ import pgshield
 
 ## Known Limitations
 
-To maintain engineering transparency, note the following architectural realities:
+To maintain engineering transparency, note the following architectural realities (see [docs/limitations.md](docs/limitations.md) for the complete 10-point specification):
 
 1. **SSI Conflicts Do Not Appear in `pg_locks`:** PostgreSQL's SSI (`40001`) conflicts are tracked via SIREAD predicate locks in private kernel memory structures. They do not block queries and will generally not show up as waiting locks in `pg_locks`.
 2. **Observational Diagnostics:** Diagnostic queries against `pg_stat_activity` and `pg_locks` represent a momentary snapshot after the transaction failed. If conflicting concurrent transactions have already committed or disconnected, their locks will no longer appear in the diagnostic output.
 3. **Separate Connection for Diagnostics:** Applications should provide a dedicated connection or pool to `DiagnosticCollector` via concrete adapters (`AsyncpgQueryExecutor`, `SQLAlchemyQueryExecutor`). PGShield intentionally avoids running diagnostic SQL on unverified application connections that may be in aborted transaction states.
 4. **Idempotency Requirement:** Callables passed to `TransactionRunner` must be safe to execute multiple times. If your function contains uncommitted local state mutations or external API calls, those actions will repeat on retry.
 5. **No Synchronous Driver Support:** PGShield is written exclusively for asynchronous Python (`asyncio`). Synchronous DBAPI drivers (`psycopg2` sync, synchronous SQLAlchemy sessions) are not supported.
+
+---
+
+## Developer Experience
+
+PGShield is engineered for a predictable developer experience and strict typing:
+
+* **Strict Type Safety:** Type hints are strictly enforced across the entire library with `mypy` in strict mode. The package includes a `py.typed` marker (PEP 561) enabling downstream type checkers to validate PGShield invocations without untyped boundary errors.
+* **Architectural Boundaries:** A comprehensive 10-point review of operational constraints, ambiguous commit behaviors, and external side effects is documented in [docs/limitations.md](docs/limitations.md).
+* **Runnable Examples:** Self-contained example scripts demonstrating atomic balance transfers are available in the `examples/` directory:
+  ```bash
+  export PGSHIELD_TEST_DSN="postgresql://postgres:postgres@localhost:5432/postgres"
+  python examples/sqlalchemy_transfer.py
+  python examples/asyncpg_transfer.py
+  ```
 
 ---
 

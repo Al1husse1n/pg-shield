@@ -1,7 +1,9 @@
 """Test configuration and fixtures for PGShield."""
 
 from typing import Callable, Optional
+
 import pytest
+
 from pgshield.transaction.runner import TransactionAdapter
 
 
@@ -46,4 +48,3 @@ class FakeAdapter(TransactionAdapter):
 def fake_adapter() -> FakeAdapter:
     """Provide a fresh FakeAdapter instance for testing."""
     return FakeAdapter()
-

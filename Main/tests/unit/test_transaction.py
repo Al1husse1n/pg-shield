@@ -2,17 +2,14 @@
 
 import asyncio
 from typing import List, Optional
+
 import pytest
 
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.context import (
-    AttemptRecord,
-    TransactionContext,
     get_current_context,
 )
 from pgshield.transaction.runner import (
-    NullTransactionAdapter,
-    TransactionAdapter,
     TransactionResult,
     TransactionRunner,
 )
@@ -24,6 +21,7 @@ class MockDatabaseError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 MockDatabaseError.__module__ = "asyncpg.exceptions"
 
@@ -224,7 +222,7 @@ class TestTransactionRunner:
 
     @pytest.mark.asyncio
     async def test_7_commit_failure_never_retried_due_to_ambiguous_outcome(self):
-        """7. Commit failure is never retried even with retryable SQLSTATE due to ambiguous outcome."""
+        """7. Commit failure is never retried due to ambiguous outcome."""
         # Adapter will raise 40001 on the first commit attempt
         adapter = MockTransactionAdapter(
             commit_error=MockDatabaseError("commit serialization failure", sqlstate="40001")
@@ -289,7 +287,9 @@ class TestTransactionRunner:
         async def op():
             nonlocal call_count
             call_count += 1
-            raise MockDatabaseError("duplicate key value violates unique constraint", sqlstate="23505")
+            raise MockDatabaseError(
+                "duplicate key value violates unique constraint", sqlstate="23505"
+            )
 
         with pytest.raises(MockDatabaseError) as exc_info:
             await runner.run(op)

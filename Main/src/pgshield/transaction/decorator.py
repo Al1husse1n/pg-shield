@@ -37,8 +37,7 @@ R = TypeVar("R")
 @overload
 def transaction(
     fn: Callable[P, Awaitable[R]],
-) -> Callable[P, Awaitable[R]]:
-    ...
+) -> Callable[P, Awaitable[R]]: ...
 
 
 @overload
@@ -59,8 +58,7 @@ def transaction(
     sleep_func: Optional[SleepCallable] = None,
     random_func: Optional[RandomFloatGenerator] = None,
     custom_extractor: Optional[SQLStateExtractor] = None,
-) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
-    ...
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
 
 def transaction(
@@ -166,7 +164,10 @@ def transaction(
 
         @functools.wraps(target_fn)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            return await effective_runner.run(target_fn, *args, **kwargs)
+            async def _operation() -> R:
+                return await target_fn(*args, **kwargs)
+
+            return await effective_runner.run(_operation)
 
         setattr(wrapper, "__pgshield_runner__", effective_runner)
         return wrapper

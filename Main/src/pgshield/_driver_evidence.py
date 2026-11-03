@@ -92,4 +92,3 @@ def _has_postgres_driver_evidence(
         return True
 
     return False
-

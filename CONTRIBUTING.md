@@ -58,9 +58,10 @@ docker compose down
 
 ## Continuous Integration (CI) Architecture
 
-GitHub Actions runs four distinct jobs on every push and pull request:
+GitHub Actions runs five distinct jobs on every push and pull request:
 
-- **lint**: Inspects code style and imports using `ruff check .`. In Phase 5, the lint job is advisory; in Phase 6 it becomes blocking.
+- **lint**: Enforces code style, import sorting, and line length via `ruff check .` and formatting.
+- **type-check**: Enforces strict static type checking with `mypy src/pgshield`.
 - **unit**: Runs all unit tests (`pytest -q`) in an isolated Python 3.13 environment without database dependencies.
 - **integration**: Runs integration tests (`pytest -q -m integration`) against a native GitHub Actions PostgreSQL 16 service container.
 - **compose**: Verifies `docker-compose.yml` startup, validates healthchecks, runs integration tests against the compose cluster, and tears down the stack.
@@ -68,12 +69,14 @@ GitHub Actions runs four distinct jobs on every push and pull request:
 ## Definition of Done for a PR
 
 Before submitting a Pull Request, verify:
-1. Unit tests pass locally (`pytest -q`).
-2. Integration tests pass locally or via Docker Compose (`pytest -q -m integration`).
-3. All GitHub Actions CI checks are green.
-4. The PR contains no unrelated changes, temporary artifacts, or formatting churn.
+1. Lint and formatting checks pass (`ruff check .`).
+2. Type checking passes (`mypy src/pgshield`).
+3. Unit tests pass locally (`pytest -q`).
+4. Integration tests pass locally or via Docker Compose (`pytest -q -m integration`).
+5. All GitHub Actions CI checks are green.
+6. The PR contains no unrelated changes, temporary artifacts, or formatting churn.
 
 ## Branch Protection
 
-The main branch should be protected via GitHub branch protection rules requiring the lint, unit, integration, and compose CI checks to pass before merge. This is a repository settings change, not a workflow file change; configure it in GitHub -> Settings -> Branches after the first successful CI run.
+The main branch should be protected via GitHub branch protection rules requiring the lint, type-check, unit, integration, and compose CI checks to pass before merge. This is a repository settings change, not a workflow file change; configure it in GitHub -> Settings -> Branches after the first successful CI run.
 

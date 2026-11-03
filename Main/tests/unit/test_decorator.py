@@ -1,11 +1,10 @@
 """Unit tests for the @transaction decorator."""
 
-import asyncio
 from typing import List
+
 import pytest
 
 from pgshield.retry.policy import RetryPolicy
-from pgshield.transaction.context import get_current_context
 from pgshield.transaction.decorator import transaction, transactional
 from pgshield.transaction.runner import TransactionRunner
 
@@ -16,6 +15,7 @@ class MockDatabaseError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 MockDatabaseError.__module__ = "asyncpg.exceptions"
 

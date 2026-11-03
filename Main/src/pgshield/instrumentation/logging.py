@@ -7,17 +7,17 @@ credentials or payload data.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 import logging
 import re
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, Final, Mapping, Optional
 
 # Standard Logger name
 DEFAULT_LOGGER_NAME: Final[str] = "pgshield.transaction"
 
 # Sensitive keyword patterns to sanitize in metadata and logs
-SENSITIVE_KEY_PATTERN: Final[re.Pattern] = re.compile(
+SENSITIVE_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(password|secret|token|api_key|authorization|auth|credential|dsn|private_key)",
     re.IGNORECASE,
 )

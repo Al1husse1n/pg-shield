@@ -1,6 +1,7 @@
 """Unit tests for asyncpg driver integration in PGShield."""
 
 from unittest.mock import AsyncMock, MagicMock
+
 import asyncpg
 import asyncpg.exceptions
 import pytest
@@ -61,8 +62,10 @@ class TestAsyncpgIntegration:
         adapter = AsyncpgConnectionAdapter(mock_conn)
 
         expected_msg = (
-            "PGShield cannot begin a transaction on an asyncpg connection that is already in a transaction. "
-            "Acquire a fresh connection from your pool for each retryable operation, or wrap your own boundary."
+            "PGShield cannot begin a transaction on an asyncpg connection "
+            "that is already in a transaction. "
+            "Acquire a fresh connection from your pool for each retryable operation, "
+            "or wrap your own boundary."
         )
         with pytest.raises(RuntimeError) as exc_info:
             await adapter.begin()
@@ -174,7 +177,11 @@ class TestAsyncpgIntegration:
         executor = AsyncpgQueryExecutor(mock_conn)
         assert isinstance(executor, QueryExecutor)
 
-        rows = await executor.execute_query("SELECT pid, state FROM pg_stat_activity WHERE pid = $1", [1234])
-        mock_conn.fetch.assert_awaited_once_with("SELECT pid, state FROM pg_stat_activity WHERE pid = $1", 1234)
+        rows = await executor.execute_query(
+            "SELECT pid, state FROM pg_stat_activity WHERE pid = $1", [1234]
+        )
+        mock_conn.fetch.assert_awaited_once_with(
+            "SELECT pid, state FROM pg_stat_activity WHERE pid = $1", 1234
+        )
         assert rows == [{"pid": 1234, "state": "active"}]
         assert isinstance(rows[0], dict)

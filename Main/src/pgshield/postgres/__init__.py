@@ -1,7 +1,8 @@
 """PostgreSQL-specific utilities, diagnostics, and lock analysis for PGShield.
 
 Provides:
-- errors.py: SQLSTATE extraction and error categorization (PostgresErrorDetails, PostgresErrorCategory)
+- errors.py: SQLSTATE extraction and error categorization
+  (PostgresErrorDetails, PostgresErrorCategory)
 - activity.py: pg_stat_activity inspection (SessionActivity, fetch_activity)
 - locks.py: pg_locks inspection & blocking analysis (LockInfo, BlockingRelationship, fetch_locks)
 - diagnostics.py: Unified DiagnosticReport and DiagnosticCollector

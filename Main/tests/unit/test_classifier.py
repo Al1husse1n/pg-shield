@@ -1,15 +1,10 @@
 """Unit tests for error classifier subsystem."""
 
-import pytest
 from pgshield.retry.classifier import (
-    DEFAULT_RETRYABLE_SQLSTATES,
     SQLSTATE_CHECK_VIOLATION,
-    SQLSTATE_DEADLOCK_DETECTED,
     SQLSTATE_FOREIGN_KEY_VIOLATION,
     SQLSTATE_NOT_NULL_VIOLATION,
-    SQLSTATE_SERIALIZATION_FAILURE,
     SQLSTATE_UNIQUE_VIOLATION,
-    ClassificationResult,
     ErrorCategory,
     classify_error,
     extract_sqlstate,
@@ -20,7 +15,13 @@ from pgshield.retry.classifier import (
 class DummyDriverError(Exception):
     """Mock database driver exception."""
 
-    def __init__(self, message: str, sqlstate: str | None = None, pgcode: str | None = None, code: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        sqlstate: str | None = None,
+        pgcode: str | None = None,
+        code: str | None = None,
+    ):
         super().__init__(message)
         if sqlstate is not None:
             self.sqlstate = sqlstate
@@ -28,6 +29,7 @@ class DummyDriverError(Exception):
             self.pgcode = pgcode
         if code is not None:
             self.code = code
+
 
 DummyDriverError.__module__ = "asyncpg.exceptions"
 
@@ -38,6 +40,7 @@ class DummyWrappedError(Exception):
     def __init__(self, message: str, orig: Exception | None = None):
         super().__init__(message)
         self.orig = orig
+
 
 DummyWrappedError.__module__ = "sqlalchemy.exc"
 
@@ -177,7 +180,10 @@ class TestErrorClassifier:
         err = SpecialError("special serialization")
         assert is_retryable(err) is False
 
-        custom_extractor = lambda e: getattr(e, "custom_code", lambda: None)()
+        def custom_extractor(e):
+            code_fn = getattr(e, "custom_code", None)
+            return code_fn() if code_fn is not None else None
+
         result = classify_error(err, custom_extractor=custom_extractor)
         assert result.retryable is True
         assert result.sqlstate == "40001"
@@ -188,7 +194,8 @@ class TestErrorClassifier:
         assert extract_sqlstate(err) is None
 
     def test_fake_error_with_code_not_classified_retryable(self):
-        """A plain exception carrying code='40001' without PostgreSQL driver evidence is not retryable."""
+        """A plain exception with code='40001' and no PG driver evidence is not retryable."""
+
         class FakeError(Exception):
             code = "40001"
 
@@ -202,8 +209,10 @@ class TestErrorClassifier:
 
     def test_mock_driver_error_in_wrong_module_not_retryable(self):
         """A class named MockDriverError but in the wrong module is NOT retryable."""
+
         class MockDriverError(Exception):
             code = "40001"
+
         MockDriverError.__module__ = "myapp.errors"
         result = classify_error(MockDriverError("x"))
         assert result.retryable is False

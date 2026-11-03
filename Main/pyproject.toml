@@ -25,7 +25,8 @@ dev = [
     "asyncpg (>=0.31.0,<0.32.0)",
     "fastapi (>=0.141.1,<0.142.0)",
     "httpx (>=0.28.1,<0.29.0)",
-    "ruff (>=0.6,<1.0)"
+    "ruff (>=0.6,<1.0)",
+    "mypy (>=1.11.0,<2.0.0)"
 ]
 
 [tool.ruff]
@@ -40,3 +41,14 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: requires a live PostgreSQL (deselected by default)",
 ]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = ["^tests/"]
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true

@@ -1,18 +1,18 @@
 """Error classification subsystem for PostgreSQL transactions.
 
-This module determines whether a given exception represents a transient PostgreSQL
-concurrency error that is safe and appropriate to retry.
-
-It is completely decoupled from database drivers and ORMs, relying on standard
-SQLSTATE error codes and generic exception introspection.
+Extracts SQLSTATE codes from exceptions and decides if they are retryable.
+Requires driver-origin evidence to avoid misclassifying user exceptions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Final, Optional, Set
+from typing import AbstractSet, Callable, Final, FrozenSet, Optional
 
+from pgshield._driver_evidence import (
+    _has_postgres_driver_evidence,
+)
 
 # Standard PostgreSQL SQLSTATE Codes
 SQLSTATE_SERIALIZATION_FAILURE: Final[str] = "40001"
@@ -23,7 +23,7 @@ SQLSTATE_CHECK_VIOLATION: Final[str] = "23514"
 SQLSTATE_NOT_NULL_VIOLATION: Final[str] = "23502"
 
 # Default set of SQLSTATEs considered retryable by PGShield
-DEFAULT_RETRYABLE_SQLSTATES: Final[Set[str]] = frozenset(
+DEFAULT_RETRYABLE_SQLSTATES: Final[FrozenSet[str]] = frozenset(
     {
         SQLSTATE_SERIALIZATION_FAILURE,
         SQLSTATE_DEADLOCK_DETECTED,
@@ -54,16 +54,8 @@ class ClassificationResult:
 # Type alias for custom SQLSTATE extractor functions
 SQLStateExtractor = Callable[[BaseException], Optional[str]]
 
-from pgshield._driver_evidence import (
-    _DRIVER_CLASS_ALLOWLIST,
-    _DRIVER_MODULE_KEYWORDS,
-    _has_postgres_driver_evidence,
-)
 
-
-def extract_sqlstate(
-    error: BaseException, _visited: Optional[set[int]] = None
-) -> Optional[str]:
+def extract_sqlstate(error: BaseException, _visited: Optional[set[int]] = None) -> Optional[str]:
     """Extract a 5-character PostgreSQL SQLSTATE from an exception.
 
     Inspects common driver attributes across asyncpg, psycopg2, psycopg3,
@@ -141,7 +133,7 @@ def categorize_sqlstate(sqlstate: Optional[str]) -> ErrorCategory:
 def classify_error(
     error: BaseException,
     *,
-    retryable_sqlstates: Optional[Set[str]] = None,
+    retryable_sqlstates: Optional[AbstractSet[str]] = None,
     custom_extractor: Optional[SQLStateExtractor] = None,
 ) -> ClassificationResult:
     """Classify an exception to determine if it should trigger a transaction retry.
@@ -155,7 +147,9 @@ def classify_error(
     Returns:
         A ClassificationResult containing retry decision, SQLSTATE, category, and reason.
     """
-    target_sqlstates = retryable_sqlstates if retryable_sqlstates is not None else DEFAULT_RETRYABLE_SQLSTATES
+    target_sqlstates = (
+        retryable_sqlstates if retryable_sqlstates is not None else DEFAULT_RETRYABLE_SQLSTATES
+    )
 
     sqlstate: Optional[str] = None
     if custom_extractor is not None:
@@ -198,7 +192,7 @@ def classify_error(
 def is_retryable(
     error: BaseException,
     *,
-    retryable_sqlstates: Optional[Set[str]] = None,
+    retryable_sqlstates: Optional[AbstractSet[str]] = None,
     custom_extractor: Optional[SQLStateExtractor] = None,
 ) -> bool:
     """Convenience boolean check for whether an exception should be retried.

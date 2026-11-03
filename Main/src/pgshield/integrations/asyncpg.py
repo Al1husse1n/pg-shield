@@ -19,7 +19,6 @@ from typing import (
 
 import asyncpg
 
-from pgshield.postgres.errors import parse_postgres_error
 from pgshield.retry.classifier import extract_sqlstate
 from pgshield.retry.policy import RetryPolicy
 from pgshield.transaction.runner import (
@@ -58,8 +57,9 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
         """
         if self._connection.is_in_transaction():
             raise RuntimeError(
-                "PGShield cannot begin a transaction on an asyncpg connection that is already in a transaction. "
-                "Acquire a fresh connection from your pool for each retryable operation, or wrap your own boundary."
+                "PGShield cannot begin a transaction on an asyncpg connection "
+                "that is already in a transaction. Acquire a fresh connection from your pool "
+                "for each retryable operation, or wrap your own boundary."
             )
         if self._current_transaction is not None:
             await self.rollback()
@@ -67,13 +67,13 @@ class AsyncpgConnectionAdapter(TransactionAdapter):
         await self._current_transaction.start()
 
     async def commit(self) -> None:
-        """Commit the current transaction boundary (PGShield only owns the transaction it started)."""
+        """Commit current transaction boundary (PGShield only owns what it started)."""
         if self._current_transaction is not None:
             await self._current_transaction.commit()
             self._current_transaction = None
 
     async def rollback(self) -> None:
-        """Roll back the current transaction boundary (PGShield only owns the transaction it started)."""
+        """Roll back current transaction boundary (PGShield only owns what it started)."""
         if self._current_transaction is not None:
             try:
                 await self._current_transaction.rollback()

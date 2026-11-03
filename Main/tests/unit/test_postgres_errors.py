@@ -1,13 +1,9 @@
 """Unit tests for PostgreSQL error introspection and normalization."""
 
-import pytest
 from pgshield.postgres.errors import (
-    SQLSTATE_CHECK_VIOLATION,
     SQLSTATE_CONNECTION_FAILURE,
     SQLSTATE_DEADLOCK_DETECTED,
-    SQLSTATE_FOREIGN_KEY_VIOLATION,
     SQLSTATE_LOCK_NOT_AVAILABLE,
-    SQLSTATE_NOT_NULL_VIOLATION,
     SQLSTATE_QUERY_CANCELED,
     SQLSTATE_SERIALIZATION_FAILURE,
     SQLSTATE_UNIQUE_VIOLATION,
@@ -44,6 +40,7 @@ class MockDriverException(Exception):
         if constraint_name is not None:
             self.constraint_name = constraint_name
 
+
 MockDriverException.__module__ = "asyncpg.exceptions"
 
 
@@ -54,6 +51,7 @@ class MockWrapperException(Exception):
         super().__init__(message)
         self.orig = orig
 
+
 MockWrapperException.__module__ = "sqlalchemy.exc"
 
 
@@ -61,7 +59,9 @@ class TestPostgresErrors:
     """Test suite for PostgreSQL error categorization and parsing."""
 
     def test_serialization_failure_40001(self):
-        err = MockDriverException("could not serialize access", sqlstate=SQLSTATE_SERIALIZATION_FAILURE)
+        err = MockDriverException(
+            "could not serialize access", sqlstate=SQLSTATE_SERIALIZATION_FAILURE
+        )
         details = parse_postgres_error(err)
 
         assert details.sqlstate == "40001"
@@ -101,18 +101,26 @@ class TestPostgresErrors:
         assert details.detail == "Key (email)=(alice@example.com) already exists."
 
     def test_lock_not_available(self):
-        err_lock = MockDriverException("could not obtain lock on row in relation", sqlstate=SQLSTATE_LOCK_NOT_AVAILABLE)
+        err_lock = MockDriverException(
+            "could not obtain lock on row in relation", sqlstate=SQLSTATE_LOCK_NOT_AVAILABLE
+        )
         assert parse_postgres_error(err_lock).category == PostgresErrorCategory.LOCK_NOT_AVAILABLE
 
     def test_connection_error_and_query_canceled(self):
-        err_conn = MockDriverException("connection to server lost", sqlstate=SQLSTATE_CONNECTION_FAILURE)
+        err_conn = MockDriverException(
+            "connection to server lost", sqlstate=SQLSTATE_CONNECTION_FAILURE
+        )
         assert parse_postgres_error(err_conn).category == PostgresErrorCategory.CONNECTION_ERROR
 
-        err_cancel = MockDriverException("canceling query due to user request", sqlstate=SQLSTATE_QUERY_CANCELED)
+        err_cancel = MockDriverException(
+            "canceling query due to user request", sqlstate=SQLSTATE_QUERY_CANCELED
+        )
         assert parse_postgres_error(err_cancel).category == PostgresErrorCategory.QUERY_CANCELED
 
     def test_wrapped_exception_introspection(self):
-        inner = MockDriverException("inner deadlock", sqlstate="40P01", hint="See log for lock details")
+        inner = MockDriverException(
+            "inner deadlock", sqlstate="40P01", hint="See log for lock details"
+        )
         outer = MockWrapperException("database operation failed", orig=inner)
         details = parse_postgres_error(outer)
 
@@ -134,7 +142,9 @@ class TestPostgresErrors:
             assert details.category == PostgresErrorCategory.SERIALIZATION_FAILURE
 
     def test_unknown_and_non_exceptions(self):
-        assert parse_postgres_error(ValueError("bad value")).category == PostgresErrorCategory.UNKNOWN
+        assert (
+            parse_postgres_error(ValueError("bad value")).category == PostgresErrorCategory.UNKNOWN
+        )
         assert parse_postgres_error(None).category == PostgresErrorCategory.UNKNOWN  # type: ignore
 
     def test_categorize_sqlstate_direct(self):
@@ -145,9 +155,11 @@ class TestPostgresErrors:
         assert categorize_sqlstate(None) == PostgresErrorCategory.UNKNOWN
 
     def test_mock_driver_error_in_wrong_module_not_parsed_as_postgres(self):
-        """A class named MockDriverException or MockDriverError in the wrong module has no driver evidence."""
+        """MockDriverError in the wrong module has no driver evidence."""
+
         class MockDriverError(Exception):
             code = "40001"
+
         MockDriverError.__module__ = "myapp.errors"
 
         details = parse_postgres_error(MockDriverError("x"))

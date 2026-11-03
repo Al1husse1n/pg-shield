@@ -2,7 +2,7 @@
 
 Provides:
 - TransactionRunner: Central execution engine for whole-transaction retries (runner.py)
-- TransactionAdapter & NullTransactionAdapter: Protocols for database transaction boundaries (runner.py)
+- TransactionAdapter & NullTransactionAdapter: Protocols for transaction boundaries (runner.py)
 - TransactionResult: Result metadata container (runner.py)
 - TransactionContext & AttemptRecord: Execution context and attempt history (context.py)
 - get_current_context(): Active context accessor (context.py)

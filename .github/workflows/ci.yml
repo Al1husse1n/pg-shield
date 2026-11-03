@@ -1,6 +1,7 @@
 # PGShield Continuous Integration (CI) Workflow
-# This workflow runs four distinct jobs: lint (code quality inspection), unit (isolated tests with no DB),
-# integration (tests against a native GitHub Actions service container), and compose (tests against docker-compose.yml).
+# This workflow runs five distinct jobs: lint (blocking ruff check), type-check (strict mypy),
+# unit (isolated tests with no DB), integration (tests against a native GitHub Actions service container),
+# and compose (tests against docker-compose.yml).
 # Both integration and compose jobs exist because they validate PostgreSQL via different orchestration mechanisms;
 # if compose fails while integration passes, we know docker-compose.yml is broken rather than application code.
 
@@ -15,7 +16,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    continue-on-error: true  # advisory in Phase 5; Phase 6 makes this blocking after fixing lint issues
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,6 +30,32 @@ jobs:
 
       - name: Run ruff check
         run: ruff check .
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Main
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.create false
+          poetry install
+
+      - name: Run mypy
+        run: poetry run mypy src/pgshield
 
   unit:
     name: Unit Tests

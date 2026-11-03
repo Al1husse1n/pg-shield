@@ -2,7 +2,7 @@
 
 Validates the full PGShield concurrency toolkit across:
 - Test 1: Normal transaction execution (single attempt, commit, metrics/logs)
-- Test 2: 40001 serialization failure (rollback, backoff, whole-operation replay, commit, retry metric)
+- Test 2: 40001 serialization failure (rollback, backoff, replay, commit, retry metric)
 - Test 3: 40P01 deadlock detected (rollback, backoff, whole-operation replay, diagnostics)
 - Test 4: Non-retryable error (23505 unique constraint violation, immediate rollback & propagation)
 - Test 5: Retry limit exhaustion (stops at max_attempts without infinite loops)
@@ -11,15 +11,13 @@ Validates the full PGShield concurrency toolkit across:
 - Test 8: Full FastAPI application integration with AsyncSession, logging, and metrics
 """
 
-from contextlib import asynccontextmanager
 import logging
-from typing import AsyncGenerator, Dict, List
-from fastapi import Depends, FastAPI, HTTPException, status
+from typing import Dict, List
+
+import pytest
+from fastapi import FastAPI, HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel
-import pytest
-from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from pgshield import (
     DiagnosticCollector,
@@ -29,15 +27,9 @@ from pgshield import (
     LockInfo,
     PostgresErrorCategory,
     RetryPolicy,
-    SessionActivity,
-    SQLAlchemySessionAdapter,
-    SQLAlchemyTransactionRunner,
     TransactionLogger,
     TransactionRunner,
     calculate_backoff,
-    classify_error,
-    run_sqlalchemy_transaction,
-    transaction,
 )
 
 
@@ -45,6 +37,7 @@ class MockDatabaseError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 MockDatabaseError.__module__ = "asyncpg.exceptions"
 
@@ -331,12 +324,16 @@ def test_6_backoff_growth_and_boundaries():
     jitter_policy = RetryPolicy(base_delay=0.1, max_delay=1.0, jitter=True)
 
     # Minimum possible RNG (lower bound)
-    min_rng = lambda a, b: a
+    def min_rng(a: float, b: float) -> float:
+        return a
+
     for att in range(5):
         assert calculate_backoff(att, jitter_policy, random_func=min_rng) == 0.0
 
     # Maximum possible RNG (upper ceiling)
-    max_rng = lambda a, b: b
+    def max_rng(a: float, b: float) -> float:
+        return b
+
     assert calculate_backoff(0, jitter_policy, random_func=max_rng) == pytest.approx(0.1)
     assert calculate_backoff(1, jitter_policy, random_func=max_rng) == pytest.approx(0.2)
     assert calculate_backoff(2, jitter_policy, random_func=max_rng) == pytest.approx(0.4)
@@ -348,11 +345,15 @@ def test_6_backoff_growth_and_boundaries():
 def test_7_diagnostics_report_and_ssi_distinction():
     """Verify DiagnosticReport generation, lock analysis, and SSI accuracy."""
     err_40001 = MockDatabaseError("could not serialize access", sqlstate="40001")
-    report_ssi: DiagnosticReport = DiagnosticCollector(mode=DiagnosticMode.OFF).collect.__wrapped__(  # type: ignore
-        error=err_40001,
-        attempt=1,
-        duration=0.05,
-    ) if hasattr(DiagnosticCollector.collect, "__wrapped__") else None # or via build_diagnostic_report
+    report_ssi: DiagnosticReport = (
+        DiagnosticCollector(mode=DiagnosticMode.OFF).collect.__wrapped__(  # type: ignore
+            error=err_40001,
+            attempt=1,
+            duration=0.05,
+        )
+        if hasattr(DiagnosticCollector.collect, "__wrapped__")
+        else None
+    )  # or via build_diagnostic_report
 
     from pgshield.postgres.diagnostics import build_diagnostic_report
 
@@ -365,8 +366,16 @@ def test_7_diagnostics_report_and_ssi_distinction():
     # 40P01 Deadlock Report with locks
     err_40p01 = MockDatabaseError("deadlock detected", sqlstate="40P01")
     locks = [
-        LockInfo(pid=100, lock_type="relation", mode="ExclusiveLock", granted=True, relation_name="accounts"),
-        LockInfo(pid=101, lock_type="relation", mode="ShareLock", granted=False, relation_name="accounts"),
+        LockInfo(
+            pid=100,
+            lock_type="relation",
+            mode="ExclusiveLock",
+            granted=True,
+            relation_name="accounts",
+        ),
+        LockInfo(
+            pid=101, lock_type="relation", mode="ShareLock", granted=False, relation_name="accounts"
+        ),
     ]
     report_deadlock = build_diagnostic_report(error=err_40p01, attempt=2, locks=locks)
     assert report_deadlock.error_category == PostgresErrorCategory.DEADLOCK_DETECTED

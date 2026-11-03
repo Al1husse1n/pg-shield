@@ -1,6 +1,7 @@
 """Unit tests verifying TransactionRunner calling instrumentation (logger, metrics)."""
 
 import logging
+
 import pytest
 
 from pgshield.instrumentation.logging import TransactionLogger
@@ -14,6 +15,7 @@ class MockDatabaseError(Exception):
     def __init__(self, message: str, sqlstate: str):
         super().__init__(message)
         self.sqlstate = sqlstate
+
 
 MockDatabaseError.__module__ = "asyncpg.exceptions"
 
@@ -97,7 +99,10 @@ class TestRunnerInstrumentation:
 
         # Log verification
         assert "Transaction rolled back [tx-retry-1] (SQLSTATE 40001)" in caplog.text
-        assert "Retrying transaction [tx-retry-1] [serialization_failure] (SQLSTATE 40001)" in caplog.text
+        assert (
+            "Retrying transaction [tx-retry-1] [serialization_failure] (SQLSTATE 40001)"
+            in caplog.text
+        )
         assert "Transaction committed [tx-retry-1]" in caplog.text
 
     @pytest.mark.asyncio
@@ -135,7 +140,10 @@ class TestRunnerInstrumentation:
         assert metrics.deadlocks_total == 2  # 1 retry event + 1 final failure event
 
         # Log verification
-        assert "Transaction failed permanently [tx-deadlock-1] (SQLSTATE 40P01) after 2 attempt(s)" in caplog.text
+        assert (
+            "Transaction failed permanently [tx-deadlock-1] (SQLSTATE 40P01) after 2 attempt(s)"
+            in caplog.text
+        )
 
     @pytest.mark.asyncio
     async def test_runner_with_custom_extractor(self):

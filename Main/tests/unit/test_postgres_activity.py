@@ -1,8 +1,8 @@
 """Unit tests for PostgreSQL pg_stat_activity session inspection."""
 
 import pytest
+
 from pgshield.postgres.activity import (
-    SessionActivity,
     build_activity_query,
     fetch_activity,
     parse_activity_rows,

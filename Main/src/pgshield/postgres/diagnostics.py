@@ -6,13 +6,11 @@ transaction metadata to generate actionable, machine-readable DiagnosticReports.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 import logging
 import random
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-_logger = logging.getLogger("pgshield.postgres.diagnostics")
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import List, Optional, Sequence, Tuple
 
 from pgshield.postgres.activity import QueryExecutor, SessionActivity, fetch_activity
 from pgshield.postgres.errors import (
@@ -29,6 +27,8 @@ from pgshield.postgres.locks import (
     detect_blocking_chains,
     fetch_locks,
 )
+
+_logger = logging.getLogger("pgshield.postgres.diagnostics")
 
 
 class DiagnosticMode(str, Enum):
@@ -103,38 +103,47 @@ def generate_explanation(
     if sqlstate == SQLSTATE_SERIALIZATION_FAILURE:
         explanation = (
             "Serialization failure detected (SQLSTATE 40001). PostgreSQL's Serializable Snapshot "
-            "Isolation (SSI) dependency tracking detected a read/write conflict (rw-antidependency cycle) "
-            "between concurrent transactions. SSI conflicts are tracked in memory via predicate locks "
-            "(SIREAD locks) and do not manifest as standard blocking locks in pg_locks. The current "
-            "lock table may not identify the specific overlapping query."
+            "Isolation (SSI) dependency tracking detected a read/write conflict "
+            "(rw-antidependency cycle) between concurrent transactions. SSI conflicts are tracked "
+            "in memory via predicate locks (SIREAD locks) and do not manifest as standard "
+            "blocking locks in pg_locks. The current lock table may not identify "
+            "the specific overlapping query."
         )
         if len(blocking_chains) == 0:
             explanation += (
-                " No blocking relationship was found in pg_locks; this is expected for Serializable "
-                "Snapshot Isolation, where serialization conflicts are tracked via SIREAD predicate "
-                "locks and may not appear as ordinary lock waits."
+                " No blocking relationship was found in pg_locks; this is expected for "
+                "Serializable Snapshot Isolation, where serialization conflicts are tracked "
+                "via SIREAD predicate locks and may not appear as ordinary lock waits."
             )
         warnings.append(
-            "pg_locks cannot fully explain SSI serialization failures; do not assume missing blocking "
-            "locks indicates absence of conflict."
+            "pg_locks cannot fully explain SSI serialization failures; do not assume missing "
+            "blocking locks indicates absence of conflict."
         )
-        recommendations.append("Retry the entire transaction from the beginning with backoff and jitter.")
-        recommendations.append("Ensure transaction execution is short and read-write sets are minimal.")
         recommendations.append(
-            "Consider declaring pure read transactions as READ ONLY to reduce predicate lock tracking."
+            "Retry the entire transaction from the beginning with backoff and jitter."
+        )
+        recommendations.append(
+            "Ensure transaction execution is short and read-write sets are minimal."
+        )
+        recommendations.append(
+            "Consider declaring pure read transactions as READ ONLY to reduce predicate "
+            "lock tracking."
         )
 
     elif sqlstate == SQLSTATE_DEADLOCK_DETECTED:
         explanation = (
-            "Deadlock detected (SQLSTATE 40P01). Two or more concurrent transactions were waiting for "
-            "mutually conflicting locks held by each other, forming a cycle in the lock wait graph. "
-            "PostgreSQL's deadlock detector aborted this transaction to break the cycle."
+            "Deadlock detected (SQLSTATE 40P01). Two or more concurrent transactions were waiting "
+            "for mutually conflicting locks held by each other, forming a cycle in the lock wait "
+            "graph. PostgreSQL's deadlock detector aborted this transaction to break the cycle."
         )
         if blocking_chains:
-            explanation += f" Detected {len(blocking_chains)} blocking relationship(s) in active locks."
+            explanation += (
+                f" Detected {len(blocking_chains)} blocking relationship(s) in active locks."
+            )
         recommendations.append("Retry the transaction from the beginning with randomized jitter.")
         recommendations.append(
-            "Ensure concurrent transactions acquire table and row locks in a consistent global order."
+            "Ensure concurrent transactions acquire table and row locks in a "
+            "consistent global order."
         )
         recommendations.append(
             "Keep transactions as brief as possible to reduce the window of lock contention."
@@ -142,23 +151,23 @@ def generate_explanation(
 
     elif sqlstate == SQLSTATE_LOCK_NOT_AVAILABLE:
         explanation = (
-            "Lock not available (SQLSTATE 55P03). A lock acquisition request with NOWAIT failed because "
-            "another transaction held a conflicting lock."
+            "Lock not available (SQLSTATE 55P03). A lock acquisition request with NOWAIT failed "
+            "because another transaction held a conflicting lock."
         )
         recommendations.append("Retry after a backoff delay or verify lock acquisition strategy.")
 
     elif error_details.category == PostgresErrorCategory.INTEGRITY_VIOLATION:
         explanation = (
-            f"Integrity constraint violation ({error_details.sqlstate}). This is a deterministic data "
-            f"or business logic error (e.g. unique or foreign key constraint violation) and is not "
-            f"a transient concurrency conflict."
+            f"Integrity constraint violation ({error_details.sqlstate}). This is a "
+            "deterministic data or business logic error (e.g. unique or foreign key constraint "
+            "violation) and is not a transient concurrency conflict."
         )
         recommendations.append("Do not retry automatically without correcting the underlying data.")
 
     elif error_details.category == PostgresErrorCategory.STATEMENT_TIMEOUT:
         explanation = (
-            f"Statement timeout exceeded (SQLSTATE {error_details.sqlstate}). The query was canceled "
-            f"because it exceeded PostgreSQL's statement_timeout setting."
+            f"Statement timeout exceeded (SQLSTATE {error_details.sqlstate}). The query was "
+            "canceled because it exceeded PostgreSQL's statement_timeout setting."
         )
         recommendations.append("Inspect slow queries or adjust statement_timeout if appropriate.")
 
@@ -172,7 +181,9 @@ def generate_explanation(
     else:
         explanation = f"Database error encountered: {error_details.message}"
         if error_details.sqlstate:
-            explanation = f"Database error (SQLSTATE {error_details.sqlstate}): {error_details.message}"
+            explanation = (
+                f"Database error (SQLSTATE {error_details.sqlstate}): {error_details.message}"
+            )
 
     return explanation, warnings, recommendations
 
@@ -298,7 +309,7 @@ class DiagnosticCollector:
             transaction_id: Transaction identifier.
             isolation_level: Transaction isolation level.
             pid: Backend process ID.
-            executor_override: Optional QueryExecutor override (e.g. dedicated diagnostic connection).
+            executor_override: Optional QueryExecutor override (e.g. dedicated diagnostic conn).
 
         Returns:
             DiagnosticReport if collection was performed, else None.
@@ -307,7 +318,9 @@ class DiagnosticCollector:
         if not self.should_collect(has_error):
             return None
 
-        active_executor = executor_override or self.executor            #incase you want a different connection/executor other than defined initially
+        active_executor = (
+            executor_override or self.executor
+        )  # dedicated connection/executor override
 
         sessions: List[SessionActivity] = []
         locks: List[LockInfo] = []
