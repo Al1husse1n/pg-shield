@@ -55,7 +55,7 @@ class ClassificationResult:
 SQLStateExtractor = Callable[[BaseException], Optional[str]]
 
 
-def extract_sqlstate(error: BaseException, _visited: Optional[set[int]] = None) -> Optional[str]:
+def extract_sqlstate(error: BaseException) -> Optional[str]:
     """Extract a 5-character PostgreSQL SQLSTATE from an exception.
 
     Inspects common driver attributes across asyncpg, psycopg2, psycopg3,
@@ -70,40 +70,27 @@ def extract_sqlstate(error: BaseException, _visited: Optional[set[int]] = None) 
     if not isinstance(error, BaseException):
         return None
 
-    if _visited is None:
-        _visited = set()
-    err_id = id(error)
-    if err_id in _visited:
-        return None
-    _visited.add(err_id)
+    seen: set[int] = set()
+    stack: list[BaseException] = [error]
 
-    # Check direct attributes on the exception only if there is driver evidence
-    if _has_postgres_driver_evidence(error):
-        for attr in ("sqlstate", "pgcode", "code"):
-            val = getattr(error, attr, None)
-            if isinstance(val, str) and len(val) == 5:
-                return val.upper()
+    while stack:
+        err = stack.pop()
+        if id(err) in seen:
+            continue
+        seen.add(id(err))
 
-    # Check for wrapped/underlying driver error (e.g. SQLAlchemy DBAPIError.orig)
-    orig = getattr(error, "orig", None)
-    if orig is not None and isinstance(orig, BaseException) and orig is not error:
-        extracted = extract_sqlstate(orig, _visited)
-        if extracted is not None:
-            return extracted
+        # Check direct attributes on the exception only if there is driver evidence
+        if _has_postgres_driver_evidence(err):
+            for attr in ("sqlstate", "pgcode", "code"):
+                val = getattr(err, attr, None)
+                if isinstance(val, str) and len(val) == 5:
+                    return val.upper()
 
-    # Check __cause__ chain
-    cause = getattr(error, "__cause__", None)
-    if cause is not None and isinstance(cause, BaseException) and cause is not error:
-        extracted = extract_sqlstate(cause, _visited)
-        if extracted is not None:
-            return extracted
-
-    # Check __context__ chain
-    context = getattr(error, "__context__", None)
-    if context is not None and isinstance(context, BaseException) and context is not error:
-        extracted = extract_sqlstate(context, _visited)
-        if extracted is not None:
-            return extracted
+        # Check wrapped/underlying driver errors (pushed so orig is popped first)
+        for attr in ("__context__", "__cause__", "orig"):
+            nxt = getattr(err, attr, None)
+            if isinstance(nxt, BaseException) and nxt is not err:
+                stack.append(nxt)
 
     return None
 

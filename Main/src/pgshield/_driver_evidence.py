@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Final, Optional
+from typing import Final
 
 # Recognized PostgreSQL driver modules and ORM wrappers
 _DRIVER_MODULE_KEYWORDS: Final[tuple[str, ...]] = (
@@ -42,7 +42,7 @@ def _matches_driver_evidence(target: BaseException) -> bool:
     return False
 
 
-def _has_postgres_driver_evidence(error: BaseException) -> bool: 
+def _has_postgres_driver_evidence(error: BaseException) -> bool:
     seen: set[int] = set()
     stack: list[BaseException] = [error]
 
